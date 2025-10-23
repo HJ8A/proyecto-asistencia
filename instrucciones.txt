@@ -1,6 +1,6 @@
 # Navegar a tu directorio de proyecto
 cd /home/h/Documentos/CONTROL\ ASISTENCIAS/
-
+estoy cambiando cosas
 # Crear entorno virtual
 python -m venv venv_asistencias
 
