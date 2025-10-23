@@ -2,11 +2,11 @@
 import cv2
 import face_recognition
 import numpy as np
-from database import DatabaseManager
+from app.data.database import DatabaseManager
 from datetime import datetime
 import time
 
-class SistemaAsistencias:
+class AsistenciasService:
     def __init__(self):
         self.db = DatabaseManager()
         self.known_face_encodings = []

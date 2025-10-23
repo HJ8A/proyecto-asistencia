@@ -1,6 +1,6 @@
 # main.py (versión mejorada)
-from gestion_estudiantes import GestorEstudiantes
-from sistema_asistencias import SistemaAsistencias
+from app.services.estudiantes_service import GestorEstudiantes
+from app.services.asistencias_service import SistemaAsistencias
 import os
 
 def mostrar_menu():

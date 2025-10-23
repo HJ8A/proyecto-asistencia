@@ -3,11 +3,11 @@ import face_recognition
 import cv2
 import os
 import time
-from database import DatabaseManager
+from app.data.database import DatabaseManager
 from datetime import datetime
-from camara_utils import capturar_rostros_interactivo
+from app.utils.camara_utils import capturar_rostros_interactivo
 
-class GestorEstudiantes:
+class EstudiantesService:
     def __init__(self):
         self.db = DatabaseManager()
         self.carpeta_imagenes = "imagenes_estudiantes"
@@ -252,3 +252,23 @@ class GestorEstudiantes:
             for nombre in set(nombres):
                 count = nombres.count(nombre)
                 print(f"  - {nombre} ({count} encodings)")
+    
+    def obtener_todos(self):
+        """Devuelve una lista de todos los estudiantes registrados"""
+        try:
+            estudiantes = self.db.obtener_estudiantes()
+            return [
+                {
+                    "id": e[0],
+                    "codigo": e[1],
+                    "nombre": e[2],
+                    "apellido": e[3],
+                    "edad": e[4],
+                    "seccion": e[5],
+                    "fecha_registro": e[6],
+                }
+                for e in estudiantes
+            ]
+        except Exception as e:
+            print(f"⚠️ Error al obtener estudiantes: {e}")
+            return []

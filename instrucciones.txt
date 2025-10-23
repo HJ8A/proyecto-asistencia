@@ -1,3 +1,6 @@
+#ejecutar intefaz = streamlit run yourscript.py
+
+
 # Navegar a tu directorio de proyecto
 cd /home/h/Documentos/CONTROL\ ASISTENCIAS/
 estoy cambiando cosas
