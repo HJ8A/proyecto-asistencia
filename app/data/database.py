@@ -22,10 +22,10 @@ class DatabaseManager:
         cursor.executescript("""
             CREATE TABLE IF NOT EXISTS estudiantes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                codigo TEXT UNIQUE,
+                dni TEXT UNIQUE NOT NULL,
                 nombre TEXT NOT NULL,
                 apellido TEXT NOT NULL,
-                edad INTEGER,
+                edad INTEGER NOT NULL,
                 seccion TEXT,
                 fecha_registro DATE DEFAULT CURRENT_DATE,
                 activo BOOLEAN DEFAULT 1,
@@ -70,32 +70,58 @@ class DatabaseManager:
 
     # ---------------- MÉTODOS DE OPERACIONES ---------------- #
 
-    def agregar_estudiante(self, nombre, apellido, edad=None, seccion=None, codigo=None):
+    def agregar_estudiante(self, dni, nombre, apellido, edad, seccion=None):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            if not codigo:
-                codigo = f"{nombre[0]}{apellido[0]}{int(datetime.now().timestamp())}"
-
             cursor.execute("""
-                INSERT INTO estudiantes (codigo, nombre, apellido, edad, seccion)
+                INSERT INTO estudiantes (dni, nombre, apellido, edad, seccion)
                 VALUES (?, ?, ?, ?, ?)
-            """, (codigo, nombre, apellido, edad, seccion))
+            """, (dni, nombre, apellido, edad, seccion))
             conn.commit()
-            return cursor.lastrowid, codigo
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError("El DNI ya existe en la base de datos")
         except Exception as e:
             print("❌ Error al agregar estudiante:", e)
-            return None, None
+            return None
         finally:
             conn.close()
 
     def obtener_estudiantes(self):
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, codigo, nombre, apellido, edad, seccion, fecha_registro FROM estudiantes")
+        cursor.execute("SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro FROM estudiantes")
         data = cursor.fetchall()
         conn.close()
         return data
+
+    def obtener_estudiante_por_id(self, estudiante_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, dni, nombre, apellido, edad, seccion FROM estudiantes WHERE id = ?", (estudiante_id,))
+        data = cursor.fetchone()
+        conn.close()
+        return data
+
+    def actualizar_estudiante(self, estudiante_id, dni, nombre, apellido, edad, seccion):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE estudiantes 
+                SET dni=?, nombre=?, apellido=?, edad=?, seccion=?
+                WHERE id=?
+            """, (dni, nombre, apellido, edad, seccion, estudiante_id))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            raise ValueError("El DNI ya existe en la base de datos")
+        except Exception as e:
+            print("❌ Error al actualizar estudiante:", e)
+            return False
+        finally:
+            conn.close()
 
     def guardar_encoding_facial(self, estudiante_id, encoding, imagen_path):
         import pickle
@@ -130,3 +156,74 @@ class DatabaseManager:
             ids.append(eid)
             encodings.append(pickle.loads(enc))
         return encodings, nombres, ids
+    
+    def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza):
+        """Registrar una asistencia en la base de datos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO asistencias (estudiante_id, fecha, hora, metodo_deteccion, estado, confianza)
+                VALUES (?, DATE('now'), TIME('now'), ?, 'presente', ?)
+            ''', (estudiante_id, metodo_deteccion, confianza))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ Error al registrar asistencia: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def desactivar_estudiante(self, estudiante_id):
+        """Desactiva un estudiante (eliminación lógica)"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE estudiantes SET activo = 0 WHERE id = ?", (estudiante_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("❌ Error al desactivar estudiante:", e)
+            return False
+        finally:
+            conn.close()
+
+    def obtener_estudiantes_activos(self):
+        """Obtiene solo estudiantes activos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro 
+            FROM estudiantes 
+            WHERE activo = 1
+        """)
+        data = cursor.fetchall()
+        conn.close()
+        return data
+    
+    def reactivar_estudiante(self, estudiante_id):
+        """Reactiva un estudiante"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE estudiantes SET activo = 1 WHERE id = ?", (estudiante_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("❌ Error al reactivar estudiante:", e)
+            return False
+        finally:
+            conn.close()
+
+    def obtener_estudiantes_inactivos(self):
+        """Obtiene estudiantes inactivos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro 
+            FROM estudiantes 
+            WHERE activo = 0
+        """)
+        data = cursor.fetchall()
+        conn.close()
+        return data

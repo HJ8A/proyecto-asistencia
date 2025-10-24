@@ -1,14 +1,12 @@
-# sistema_asistencias.py (versión mejorada)
 import cv2
 import face_recognition
 import numpy as np
-from app.data.database import DatabaseManager
 from datetime import datetime
 import time
 
 class AsistenciasService:
-    def __init__(self):
-        self.db = DatabaseManager()
+    def __init__(self, db_manager):  # ✅ Agregar db_manager como parámetro
+        self.db = db_manager
         self.known_face_encodings = []
         self.known_face_names = []
         self.known_face_ids = []
@@ -28,7 +26,6 @@ class AsistenciasService:
         print(f"🔍 Sistema listo con {len(self.known_face_encodings)} encodings de {len(set(self.known_face_ids))} estudiantes")
     
     def procesar_frame_mejorado(self, frame):
-
         self.frame_count += 1
     
         # Procesar solo cada X frames para mejor performance
@@ -239,10 +236,26 @@ class AsistenciasService:
         ''', (estudiante_id, hoy))
         
         if cursor.fetchone() is None:
-            self.db.registrar_asistencia(estudiante_id, 'rostro', confianza)
+            # Necesitamos agregar este método a DatabaseManager
+            self.registrar_asistencia_db(estudiante_id, 'rostro', confianza)
             print(f"✅ Asistencia registrada: Estudiante {estudiante_id}")
         
         conn.close()
+    
+    def registrar_asistencia_db(self, estudiante_id, metodo_deteccion, confianza):
+        """Método para registrar asistencia en la base de datos"""
+        conn = self.db._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO asistencias (estudiante_id, fecha, hora, metodo_deteccion, estado, confianza)
+                VALUES (?, DATE('now'), TIME('now'), ?, 'presente', ?)
+            ''', (estudiante_id, metodo_deteccion, confianza))
+            conn.commit()
+        except Exception as e:
+            print(f"❌ Error al registrar asistencia: {e}")
+        finally:
+            conn.close()
     
     def iniciar_monitoreo_mejorado(self):
         """Iniciar el sistema de monitoreo mejorado"""

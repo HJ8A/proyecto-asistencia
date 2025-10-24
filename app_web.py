@@ -1,5 +1,3 @@
-# main.py
-
 import streamlit as st
 from app.routes import (
     dashboard_page,
@@ -9,7 +7,7 @@ from app.routes import (
     configuracion_page
 )
 from app.data.database import DatabaseManager
-from app.services.estudiantes_service import EstudiantesService
+from app.services.estudiantes_service import EstudianteService
 from app.services.asistencias_service import AsistenciasService
 
 # Configurar la página
@@ -20,39 +18,43 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🎓 Sistema de Control de Asistencias Escolares")
-st.markdown("---")
+def main():
+    st.title("🎓 Sistema de Control de Asistencias Escolares")
+    st.markdown("---")
 
-# Instanciar servicios
-db = DatabaseManager()
-estudiantes_service = EstudiantesService()
-asistencias_service = AsistenciasService()
+    # Instanciar servicios
+    db = DatabaseManager()
+    estudiantes_service = EstudianteService(db)
+    asistencias_service = AsistenciasService(db)
 
-# Sidebar de navegación
-st.sidebar.title("Navegación")
-opcion = st.sidebar.radio(
-    "Selecciona una opción:",
-    [
-        "📊 Dashboard",
-        "👥 Gestión de Estudiantes", 
-        "📝 Registrar Asistencias",
-        "📈 Reportes y Estadísticas",
-        "⚙️ Configuración"
-    ]
-)
+    # Sidebar de navegación
+    st.sidebar.title("Navegación")
+    opcion = st.sidebar.radio(
+        "Selecciona una opción:",
+        [
+            "📊 Dashboard",
+            "👥 Gestión de Estudiantes", 
+            "📝 Registrar Asistencias",
+            "📈 Reportes y Estadísticas",
+            "⚙️ Configuración"
+        ]
+    )
 
-# Rutas
-if opcion == "📊 Dashboard":
-    dashboard_page.mostrar_dashboard(db)
+    # Rutas
+    if opcion == "📊 Dashboard":
+        dashboard_page.mostrar_dashboard(db)
 
-elif opcion == "👥 Gestión de Estudiantes":
-    estudiantes_page.gestion_estudiantes(estudiantes_service)
+    elif opcion == "👥 Gestión de Estudiantes":
+        estudiantes_page.gestion_estudiantes(estudiantes_service)
 
-elif opcion == "📝 Registrar Asistencias":
-    asistencias_page.registrar_asistencias(asistencias_service, db)
+    elif opcion == "📝 Registrar Asistencias":
+        asistencias_page.registrar_asistencias(asistencias_service, db)
 
-elif opcion == "📈 Reportes y Estadísticas":
-    reportes_page.mostrar_reportes(db)
+    elif opcion == "📈 Reportes y Estadísticas":
+        reportes_page.mostrar_reportes(db)
 
-elif opcion == "⚙️ Configuración":
-    configuracion_page.mostrar_configuracion(db)
+    elif opcion == "⚙️ Configuración":
+        configuracion_page.mostrar_configuracion(db)
+
+if __name__ == "__main__":
+    main()

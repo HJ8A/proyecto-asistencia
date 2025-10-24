@@ -4,11 +4,45 @@ from datetime import datetime
 
 def gestion_estudiantes(service):
     st.header("👥 Gestión de Estudiantes")
+    
+    # Estilos CSS para mejorar la apariencia
+    st.markdown("""
+        <style>
+        .stForm {
+            background-color: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 20px;
+        }
+        .form-title {
+            color: #1a1a1a;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        .required-field label:after {
+            content: " *";
+            color: #dc3545;
+        }
+        .section-header {
+            color: #495057;
+            border-left: 4px solid #28a745;
+            padding-left: 10px;
+            margin: 20px 0 10px 0;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6= st.tabs([
         "📋 Lista de Estudiantes", 
         "➕ Registrar Nuevo",
-        "✏️ Editar Estudiante", 
+        "✏️ Editar Estudiante",
+        "🚫 Desactivar Estudiante",
+        "🔄 Estudiantes Desactivados",
         "📷 Capturar Rostros"
     ])
 
@@ -21,56 +55,271 @@ def gestion_estudiantes(service):
     with tab3:
         editar_estudiante(service)
 
-    with tab4:
+    with tab4:  
+        desactivar_estudiante(service)
+
+    with tab5:
+        mostrar_estudiantes_desactivados(service)
+
+    with tab6:
         capturar_rostros(service)
 
+
 def mostrar_lista_estudiantes(service):
+    st.subheader("📊 Lista de Estudiantes Registrados")
     estudiantes = service.obtener_todos()
+    #estudiantes = service.obtener_activos()
+
     if estudiantes:
-        df = pd.DataFrame(estudiantes, columns=['ID', 'Código', 'Nombre', 'Apellido', 'Edad', 'Sección', 'Fecha Registro'])
-        st.dataframe(df, use_container_width=True)
+        df = pd.DataFrame(estudiantes, columns=['ID', 'DNI', 'Nombre', 'Apellido', 'Edad', 'Sección', 'Fecha Registro'])
+        
+        # Formatear la fecha para mejor visualización
+        df['Fecha Registro'] = pd.to_datetime(df['Fecha Registro']).dt.strftime('%d/%m/%Y')
+        
+        st.dataframe(df, width='stretch', height=400)
+        
+        # Mostrar estadísticas rápidas
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Estudiantes", len(estudiantes))
+        with col2:
+            st.metric("Edad Promedio", f"{df['Edad'].mean():.1f} años")
+        with col3:
+            secciones_unicas = df['Sección'].nunique()
+            st.metric("Secciones", secciones_unicas)
     else:
-        st.info("No hay estudiantes registrados.")
+        st.info("📝 No hay estudiantes registrados. Use la pestaña 'Registrar Nuevo' para agregar estudiantes.")
 
 def registrar_nuevo_estudiante(service):
-    st.subheader("Registrar Nuevo Estudiante")
-    with st.form("nuevo_estudiante"):
+    st.subheader("🎓 Registrar Nuevo Estudiante")
+    
+    with st.form("nuevo_estudiante", clear_on_submit=True):
+        st.markdown("### Información Personal")
+        
         col1, col2 = st.columns(2)
-        nombre = col1.text_input("Nombre *")
-        apellido = col2.text_input("Apellido *")
-        edad = col1.number_input("Edad", min_value=5, max_value=30, value=15)
-        seccion = col2.text_input("Sección")
-        codigo = col1.text_input("Código (opcional)")
-
-        if st.form_submit_button("Registrar Estudiante"):
-            if nombre and apellido:
-                service.registrar(nombre, apellido, edad, seccion, codigo)
-                st.success(f"✅ Estudiante {nombre} {apellido} registrado correctamente")
+        
+        with col1:
+            dni = st.text_input(
+                "DNI *", 
+                placeholder="Ej: 12345678",
+                help="Documento Nacional de Identidad (obligatorio)"
+            )
+            nombre = st.text_input(
+                "Nombre *", 
+                placeholder="Ej: Juan",
+                help="Nombre del estudiante (obligatorio)"
+            )
+            edad = st.number_input(
+                "Edad *", 
+                min_value=5, 
+                max_value=30, 
+                value=15,
+                help="Edad del estudiante (obligatorio)"
+            )
+            
+        with col2:
+            apellido = st.text_input(
+                "Apellido *", 
+                placeholder="Ej: Pérez",
+                help="Apellido del estudiante (obligatorio)"
+            )
+            seccion = st.text_input(
+                "Sección", 
+                placeholder="Ej: A-101",
+                help="Sección o grupo (opcional)"
+            )
+        
+        st.markdown("**\* Campos obligatorios**")
+        
+        submitted = st.form_submit_button(
+            "📝 Registrar Estudiante", 
+            use_container_width=True,
+            type="primary"
+        )
+        
+        if submitted:
+            if dni and nombre and apellido and edad:
+                try:
+                    if not dni.isdigit() or len(dni) < 8:
+                        st.error("❌ El DNI debe contener solo números y tener al menos 8 dígitos")
+                    else:
+                        estudiante_id = service.registrar(dni, nombre, apellido, edad, seccion)
+                        if estudiante_id:
+                            st.success(f"✅ Estudiante **{nombre} {apellido}** registrado correctamente con ID: {estudiante_id}")
+                        else:
+                            st.error("❌ Error al registrar el estudiante")
+                except ValueError as e:
+                    st.error(f"❌ {e}")
             else:
-                st.error("❌ Nombre y Apellido son obligatorios")
+                st.error("❌ Por favor complete todos los campos obligatorios (*)")
 
 def editar_estudiante(service):
-    st.subheader("Editar Estudiante")
-    estudiantes = service.obtener_todos()
+    st.subheader("✏️ Editar Información de Estudiante")
+    
+    estudiantes = service.obtener_activos()  # Solo mostrar activos
     if not estudiantes:
-        st.info("No hay estudiantes registrados.")
+        st.info("📝 No hay estudiantes activos para editar.")
         return
 
-    opciones = [f"{e[1]} - {e[2]} {e[3]}" for e in estudiantes]
-    seleccionado = st.selectbox("Seleccionar Estudiante", opciones)
-    estudiante_id = estudiantes[opciones.index(seleccionado)][0]
-
-    datos = service.obtener_por_id(estudiante_id)
-    if datos:
-        with st.form("editar_estudiante"):
-            nombre = st.text_input("Nombre", value=datos[2])
-            apellido = st.text_input("Apellido", value=datos[3])
-            edad = st.number_input("Edad", value=datos[4])
-            seccion = st.text_input("Sección", value=datos[5] or "")
-            if st.form_submit_button("Actualizar Información"):
-                service.actualizar(estudiante_id, nombre, apellido, edad, seccion)
-                st.success("✅ Información actualizada")
-
+    # Crear opciones más descriptivas
+    opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
+    seleccionado = st.selectbox("Seleccionar Estudiante a Editar", opciones, key="editar_estudiante")
+    
+    if seleccionado:
+        estudiante_id = estudiantes[opciones.index(seleccionado)][0]
+        datos = service.obtener_por_id(estudiante_id)
+        
+        if datos:
+            with st.form("editar_estudiante"):
+                st.markdown('<div class="form-title">📝 Editar Información del Estudiante</div>', unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    dni = st.text_input(
+                        "DNI *", 
+                        value=datos[1],
+                        placeholder="Ej: 12345678",
+                        help="Documento Nacional de Identidad"
+                    )
+                    nombre = st.text_input(
+                        "Nombre *", 
+                        value=datos[2],
+                        placeholder="Ej: Juan",
+                        help="Nombre del estudiante"
+                    )
+                    edad = st.number_input(
+                        "Edad *", 
+                        min_value=5, 
+                        max_value=30, 
+                        value=datos[4],
+                        help="Edad del estudiante"
+                    )
+                    
+                with col2:
+                    apellido = st.text_input(
+                        "Apellido *", 
+                        value=datos[3],
+                        placeholder="Ej: Pérez",
+                        help="Apellido del estudiante"
+                    )
+                    seccion = st.text_input(
+                        "Sección", 
+                        value=datos[5] or "",
+                        placeholder="Ej: A-101",
+                        help="Sección o grupo del estudiante"
+                    )
+                
+                st.markdown("**\* Campos obligatorios**")
+                
+                if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                    if dni and nombre and apellido and edad:
+                        try:
+                            if not dni.isdigit() or len(dni) < 8:
+                                st.error("❌ El DNI debe contener solo números y tener al menos 8 dígitos")
+                            else:
+                                if service.actualizar(estudiante_id, dni, nombre, apellido, edad, seccion):
+                                    st.success("✅ Información del estudiante actualizada correctamente")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Error al actualizar la información")
+                        except ValueError as e:
+                            st.error(f"❌ {e}")
+                    else:
+                        st.error("❌ Por favor complete todos los campos obligatorios")
+                        
 def capturar_rostros(service):
-    st.subheader("Capturar Rostros (en desarrollo)")
-    st.info("Aquí se integrará la captura facial mediante cámara.")
+    st.subheader("📷 Captura de Rostros")
+    
+    estudiantes = service.obtener_todos()
+    if not estudiantes:
+        st.warning("⚠️ Primero debe registrar estudiantes para poder capturar sus rostros.")
+        return
+    
+    st.info("""
+    🎯 **Funcionalidad en Desarrollo**
+    
+    Esta sección permitirá:
+    - Capturar imágenes faciales de los estudiantes
+    - Entrenar el modelo de reconocimiento facial
+    - Verificar la calidad de las imágenes capturadas
+    
+    **Próximamente...**
+    """)
+    
+    # Selector de estudiante para la captura
+    opciones = [f"ID: {e[0]} - {e[2]} {e[3]}" for e in estudiantes]
+    estudiante_seleccionado = st.selectbox("Seleccionar Estudiante para Captura", opciones)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.button("📸 Iniciar Cámara", use_container_width=True)
+    with col2:
+        st.button("🖼️ Subir Imagen", use_container_width=True)
+
+def desactivar_estudiante(service):
+    st.subheader("🚫 Desactivar Estudiante")
+    st.warning("⚠️ La desactivación oculta al estudiante pero mantiene su historial.")
+    
+    estudiantes = service.obtener_activos()  # Solo mostrar activos para desactivar
+    if not estudiantes:
+        st.info("📝 No hay estudiantes activos para desactivar.")
+        return
+
+    opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
+    seleccionado = st.selectbox("Seleccionar Estudiante a Desactivar", opciones, key="desactivar_estudiante")
+    
+    if seleccionado:
+        estudiante_id = estudiantes[opciones.index(seleccionado)][0]
+        estudiante_nombre = f"{estudiantes[opciones.index(seleccionado)][2]} {estudiantes[opciones.index(seleccionado)][3]}"
+        
+        st.error(f"¿Estás seguro de que deseas desactivar a **{estudiante_nombre}**?")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Confirmar Desactivación", use_container_width=True, type="primary"):
+                if service.desactivar(estudiante_id):
+                    st.success(f"✅ Estudiante **{estudiante_nombre}** desactivado correctamente")
+                    st.rerun()
+                else:
+                    st.error("❌ Error al desactivar el estudiante")
+        
+        with col2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.info("Operación cancelada")
+
+def mostrar_estudiantes_desactivados(service):
+    st.subheader("🔄 Estudiantes Desactivados")
+    
+    estudiantes = service.obtener_inactivos()
+    if not estudiantes:
+        st.info("📝 No hay estudiantes desactivados.")
+        return
+
+    st.warning(f"Se encontraron {len(estudiantes)} estudiante(s) desactivado(s)")
+    
+    for estudiante in estudiantes:
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{estudiante[2]} {estudiante[3]}**")
+                st.caption(f"DNI: {estudiante[1]} | Edad: {estudiante[4]} | Sección: {estudiante[5]}")
+            with col2:
+                st.write(f"ID: {estudiante[0]}")
+            with col3:
+                if st.button("🔄 Reactivar", key=f"reactivar_{estudiante[0]}"):
+                    if service.reactivar(estudiante[0]):
+                        st.success(f"✅ Estudiante reactivado correctamente")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al reactivar el estudiante")
+            st.divider()
+
+
+
+
+
+
+
+
