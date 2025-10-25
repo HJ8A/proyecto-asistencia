@@ -1,5 +1,5 @@
 # main.py (versión mejorada)
-from app.services.estudiantes_service import GestorEstudiantes
+from app.services.estudiantes_service import EstudianteService
 from app.services.asistencias_service import SistemaAsistencias
 import os
 
@@ -14,7 +14,7 @@ def mostrar_menu():
     print("-" * 60)
 
 def main():
-    gestor = GestorEstudiantes()
+    gestor = EstudianteService()
     sistema = None
     
     while True:

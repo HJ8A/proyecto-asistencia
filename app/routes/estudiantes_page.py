@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from app.utils.camara_utils import CamaraManager
 
+import sys
+import os
 def gestion_estudiantes(service):
     st.header("👥 Gestión de Estudiantes")
     
@@ -229,34 +232,79 @@ def editar_estudiante(service):
                         st.error("❌ Por favor complete todos los campos obligatorios")
                         
 def capturar_rostros(service):
-    st.subheader("📷 Captura de Rostros")
+    st.subheader("📷 Captura de Rostros para Reconocimiento Facial")
     
     estudiantes = service.obtener_todos()
     if not estudiantes:
-        st.warning("⚠️ Primero debe registrar estudiantes para poder capturar sus rostros.")
+        st.warning("⚠️ No hay estudiantes activos. Registra o reactiva un estudiante primero.")
         return
     
     st.info("""
-    🎯 **Funcionalidad en Desarrollo**
-    
-    Esta sección permitirá:
-    - Capturar imágenes faciales de los estudiantes
-    - Entrenar el modelo de reconocimiento facial
-    - Verificar la calidad de las imágenes capturadas
-    
-    **Próximamente...**
+    **Instrucciones para la captura:**
+    1. Selecciona un estudiante de la lista
+    2. Haz clic en 'Iniciar Captura de Rostros'
+    3. Se abrirá una ventana con la cámara
+    4. **Presiona ESPACIO** para capturar cada imagen (se capturarán 5 imágenes)
+    5. **Presiona ESC** para cancelar en cualquier momento
+    6. Asegúrate de tener buena iluminación y que el rostro sea visible
     """)
     
     # Selector de estudiante para la captura
-    opciones = [f"ID: {e[0]} - {e[2]} {e[3]}" for e in estudiantes]
-    estudiante_seleccionado = st.selectbox("Seleccionar Estudiante para Captura", opciones)
+    opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
+    estudiante_seleccionado = st.selectbox("Seleccionar Estudiante para Captura", opciones, key="capturar_rostros")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.button("📸 Iniciar Cámara", use_container_width=True)
-    with col2:
-        st.button("🖼️ Subir Imagen", use_container_width=True)
+    if estudiante_seleccionado:
+        estudiante_index = opciones.index(estudiante_seleccionado)
+        estudiante_id = estudiantes[estudiante_index][0]
+        nombre = estudiantes[estudiante_index][2]
+        apellido = estudiantes[estudiante_index][3]
+        
+        st.write(f"**Estudiante seleccionado:** {nombre} {apellido}")
+        
+        # Mostrar información del estudiante
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**ID:** {estudiante_id}")
+        with col2:
+            st.info(f"**Nombre:** {nombre}")
+        with col3:
+            st.info(f"**Apellido:** {apellido}")
+        
+        # Botón para iniciar captura
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            if st.button("📸 Iniciar Captura de Rostros", type="primary", use_container_width=True):
+                st.info("🟢 Iniciando cámara... Por favor, permite el acceso a la cámara.")
+                st.warning("⚠️ La ventana de la cámara puede abrirse detrás de esta ventana. Busca la ventana 'Captura de Rostros'.")
+                
+                # Llamar a la función de captura
+                try:
+                    exito = CamaraManager.capturar_rostros_interactivo(
+                        estudiante_id=estudiante_id,
+                        nombre=nombre,
+                        apellido=apellido,
+                        db=service.db,
+                        num_capturas=5
+                    )
+                    
+                    if exito:
+                        st.success("✅ ¡Captura de rostros completada exitosamente!")
+                        st.balloons()
+                    else:
+                        st.error("❌ La captura de rostros no se completó. Intenta nuevamente.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error durante la captura: {str(e)}")
+                    st.info("💡 Asegúrate de tener una cámara conectada y los permisos adecuados.")
+        
+        with col2:
+            # Mostrar estadísticas de encodings existentes
+            try:
+                encodings, nombres, ids = service.db.cargar_encodings_faciales()
+                encodings_estudiante = sum(1 for id in ids if id == estudiante_id)
+                st.write(f"**Encodings guardados para este estudiante:** {encodings_estudiante}")
+            except:
+                st.write("**Encodings guardados:** 0")
 
 def desactivar_estudiante(service):
     st.subheader("🚫 Desactivar Estudiante")

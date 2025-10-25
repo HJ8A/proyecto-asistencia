@@ -133,6 +133,7 @@ class DatabaseManager:
                 VALUES (?, ?, ?)
             """, (estudiante_id, pickle.dumps(encoding), imagen_path))
             conn.commit()
+            print(f"✅ Encoding facial guardado para estudiante {estudiante_id}")
         except Exception as e:
             print("⚠️ Error guardando encoding facial:", e)
         finally:
