@@ -217,6 +217,7 @@ class DatabaseManager:
             conn.close()
 
     def obtener_estudiantes_inactivos(self):
+
         """Obtiene estudiantes inactivos"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -228,3 +229,32 @@ class DatabaseManager:
         data = cursor.fetchall()
         conn.close()
         return data
+    
+    def obtener_asistencias_hoy(self):
+        """Obtiene todas las asistencias registradas en la fecha actual"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        fecha_actual = datetime.now().date()
+        
+        cursor.execute("""
+            SELECT 
+                e.nombre, 
+                e.apellido, 
+                e.dni, 
+                a.hora, 
+                a.metodo_deteccion, 
+                a.confianza
+            FROM asistencias a
+            JOIN estudiantes e ON a.estudiante_id = e.id
+            WHERE a.fecha = ?
+            ORDER BY a.hora DESC
+        """, (fecha_actual,))
+        
+        asistencias = cursor.fetchall()
+        conn.close()
+        return asistencias
+
+
+
+

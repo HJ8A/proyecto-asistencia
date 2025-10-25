@@ -8,7 +8,7 @@ from app.routes import (
 )
 from app.data.database import DatabaseManager
 from app.services.estudiantes_service import EstudianteService
-from app.services.asistencias_service import AsistenciasService
+from app.services.asistencias_service import AsistenciaService
 
 # Configurar la página
 st.set_page_config(
@@ -25,7 +25,7 @@ def main():
     # Instanciar servicios
     db = DatabaseManager()
     estudiantes_service = EstudianteService(db)
-    asistencias_service = AsistenciasService(db)
+    asistencias_service = AsistenciaService(db)
 
     # Sidebar de navegación
     st.sidebar.title("Navegación")
@@ -48,7 +48,7 @@ def main():
         estudiantes_page.gestion_estudiantes(estudiantes_service)
 
     elif opcion == "📝 Registrar Asistencias":
-        asistencias_page.registrar_asistencias(asistencias_service, db)
+        asistencias_page.registrar_asistencias(asistencias_service)
 
     elif opcion == "📈 Reportes y Estadísticas":
         reportes_page.mostrar_reportes(db)

@@ -3,10 +3,24 @@ import cv2
 import face_recognition
 import time
 import os
+import numpy as np
 
 class CamaraManager:
-    def __init__(self):
+    def __init__(self, db_manager):
         self.cap = None
+        self.db = db_manager
+        self.encodings = []
+        self.nombres = []
+        self.ids = []
+        self.cargar_encodings()
+    
+    def cargar_encodings(self):
+        """Carga encodings desde la base de datos."""
+        try:
+            self.encodings, self.nombres, self.ids = self.db.cargar_encodings_faciales()
+            print(f"✅ {len(self.encodings)} rostros cargados en memoria")
+        except Exception as e:
+            print(f"❌ Error al cargar encodings: {e}")
         
     def inicializar_camara(self):
         """Inicializar cámara con configuración optimizada"""
@@ -132,3 +146,56 @@ class CamaraManager:
         
         print(f"📊 Resumen: {capturas_exitosas}/{num_capturas} imágenes capturadas, {encoding_count} encodings guardados")
         return capturas_exitosas > 0
+
+    def detectar_rostros(self, frame):
+        """Detecta rostros utilizando face_recognition y devuelve bounding boxes (x, y, w, h)."""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_locations = face_recognition.face_locations(rgb_frame, model="hog")
+
+        rostros = []
+        for top, right, bottom, left in face_locations:
+            x, y, w, h = left, top, right - left, bottom - top
+            rostros.append((x, y, w, h))
+
+        return rostros
+    
+    '''
+    def reconocer_estudiante(rostro_img):
+        rgb = cv2.cvtColor(rostro_img, cv2.COLOR_BGR2RGB)
+        encodings = face_recognition.face_encodings(rgb)
+        if not encodings:
+            return None, None
+
+        face_encoding = encodings[0]
+        matches = face_recognition.compare_faces(data["encodings"], face_encoding)
+        face_distances = face_recognition.face_distance(data["encodings"], face_encoding)
+
+        best_match_index = np.argmin(face_distances)
+        if matches[best_match_index]:
+            nombre = data["names"][best_match_index]
+            confianza = 1 - face_distances[best_match_index]
+            return nombre, confianza
+
+        return None, None
+        '''
+
+    def reconocer_rostro(self, frame, x, y, w, h):
+        """Reconoce un rostro específico dentro del frame."""
+        rostro_img = frame[y:y+h, x:x+w]
+        rgb = cv2.cvtColor(rostro_img, cv2.COLOR_BGR2RGB)
+        encodings = face_recognition.face_encodings(rgb)
+        if not encodings:
+            return None, None, None
+
+        face_encoding = encodings[0]
+        matches = face_recognition.compare_faces(self.encodings, face_encoding)
+        face_distances = face_recognition.face_distance(self.encodings, face_encoding)
+
+        best_match_index = np.argmin(face_distances)
+        if matches[best_match_index]:
+            nombre = self.nombres[best_match_index]
+            estudiante_id = self.ids[best_match_index]
+            confianza = 1 - face_distances[best_match_index]
+            return nombre, estudiante_id, confianza
+
+        return None, None, None
