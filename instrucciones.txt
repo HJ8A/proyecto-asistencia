@@ -1,5 +1,5 @@
-#ejecutar intefaz = streamlit run yourscript.py
-
+#activar el entorno virtual = source venv_asistencias/bin/activate 
+#ejecutar intefaz = streamlit run app_web.py 
 
 # Navegar a tu directorio de proyecto
 cd /home/h/Documentos/CONTROL\ ASISTENCIAS/

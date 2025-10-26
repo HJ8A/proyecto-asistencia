@@ -3,43 +3,9 @@ import pandas as pd
 from datetime import datetime
 from app.utils.camara_utils import CamaraManager
 
-import sys
-import os
 def gestion_estudiantes(service):
     st.header("👥 Gestión de Estudiantes")
     
-    # Estilos CSS para mejorar la apariencia
-    st.markdown("""
-        <style>
-        .stForm {
-            background-color: #f8f9fa;
-            padding: 25px;
-            border-radius: 10px;
-            border: 1px solid #dee2e6;
-            margin-bottom: 20px;
-        }
-        .form-title {
-            color: #1a1a1a;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-weight: 600;
-        }
-        .required-field label:after {
-            content: " *";
-            color: #dc3545;
-        }
-        .section-header {
-            color: #495057;
-            border-left: 4px solid #28a745;
-            padding-left: 10px;
-            margin: 20px 0 10px 0;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     tab1, tab2, tab3, tab4, tab5, tab6= st.tabs([
         "📋 Lista de Estudiantes", 
         "➕ Registrar Nuevo",
@@ -103,13 +69,14 @@ def registrar_nuevo_estudiante(service):
         
         with col1:
             dni = st.text_input(
-                "DNI *", 
-                placeholder="Ej: 12345678",
-                help="Documento Nacional de Identidad (obligatorio)"
+                "DNI*", 
+                placeholder="72545117",
+                help="Documento Nacional de Identidad (obligatorio)",
+                max_chars=8
             )
             nombre = st.text_input(
-                "Nombre *", 
-                placeholder="Ej: Juan",
+                "Nombre*", 
+                placeholder="Juan",
                 help="Nombre del estudiante (obligatorio)"
             )
             edad = st.number_input(
@@ -122,13 +89,13 @@ def registrar_nuevo_estudiante(service):
             
         with col2:
             apellido = st.text_input(
-                "Apellido *", 
-                placeholder="Ej: Pérez",
+                "Apellido*", 
+                placeholder="Pérez",
                 help="Apellido del estudiante (obligatorio)"
             )
             seccion = st.text_input(
                 "Sección", 
-                placeholder="Ej: A-101",
+                placeholder="3-A",
                 help="Sección o grupo (opcional)"
             )
         
