@@ -255,6 +255,19 @@ class DatabaseManager:
         conn.close()
         return asistencias
 
+    def verificar_dni_existente(self, dni):
+        """Verifica si un DNI ya existe en la base de datos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id FROM estudiantes WHERE dni = ?", (dni,))
+            resultado = cursor.fetchone()
+            return resultado is not None
+        except Exception as e:
+            print("❌ Error al verificar DNI:", e)
+            return False
+        finally:
+            conn.close()
 
 
 

@@ -26,3 +26,6 @@ class EstudianteService:
 
     def obtener_inactivos(self):
         return self.db.obtener_estudiantes_inactivos()
+    
+    def verificar_dni_existente(self, dni):
+        return self.db.verificar_dni_existente(dni)

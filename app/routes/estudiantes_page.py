@@ -63,7 +63,13 @@ def registrar_nuevo_estudiante(service):
     st.subheader("🎓 Registrar Nuevo Estudiante")
     
     with st.form("nuevo_estudiante", clear_on_submit=True):
-        st.markdown("### Información Personal")
+        # Título con mejor estilo
+        st.markdown(
+            '<div style="color: #1a1a1a; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; text-align: center;">'
+            '📝 Información Personal'
+            '</div>', 
+            unsafe_allow_html=True
+        )
         
         col1, col2 = st.columns(2)
         
@@ -71,35 +77,44 @@ def registrar_nuevo_estudiante(service):
             dni = st.text_input(
                 "DNI*", 
                 placeholder="72545117",
-                help="Documento Nacional de Identidad (obligatorio)",
-                max_chars=8
+                help="Documento Nacional de Identidad (8 dígitos, obligatorio)",
+                max_chars=8,
+                key="dni_input"
             )
             nombre = st.text_input(
                 "Nombre*", 
                 placeholder="Juan",
-                help="Nombre del estudiante (obligatorio)"
+                help="Nombre del estudiante (obligatorio)",
+                key="nombre_input"
             )
             edad = st.number_input(
-                "Edad *", 
+                "Edad*", 
                 min_value=5, 
                 max_value=30, 
                 value=15,
-                help="Edad del estudiante (obligatorio)"
+                help="Edad del estudiante (obligatorio)",
+                key="edad_input"
             )
             
         with col2:
             apellido = st.text_input(
                 "Apellido*", 
                 placeholder="Pérez",
-                help="Apellido del estudiante (obligatorio)"
+                help="Apellido del estudiante (obligatorio)",
+                key="apellido_input"
             )
             seccion = st.text_input(
                 "Sección", 
                 placeholder="3-A",
-                help="Sección o grupo (opcional)"
+                help="Sección o grupo (opcional)",
+                key="seccion_input"
             )
         
-        st.markdown("**\* Campos obligatorios**")
+        # Mensaje de campos obligatorios mejorado
+        st.markdown(
+            '<div class="campos-obligatorios">* Campos obligatorios</div>',
+            unsafe_allow_html=True
+        )
         
         submitted = st.form_submit_button(
             "📝 Registrar Estudiante", 
@@ -108,20 +123,50 @@ def registrar_nuevo_estudiante(service):
         )
         
         if submitted:
-            if dni and nombre and apellido and edad:
+            # Validaciones
+            errores = []
+            
+            # Validar campos obligatorios
+            if not dni:
+                errores.append("El DNI es obligatorio")
+            if not nombre:
+                errores.append("El nombre es obligatorio")
+            if not apellido:
+                errores.append("El apellido es obligatorio")
+            if not edad:
+                errores.append("La edad es obligatoria")
+            
+            # Validaciones específicas del DNI
+            if dni:
+                if not dni.isdigit():
+                    errores.append("El DNI debe contener solo números")
+                elif len(dni) != 8:
+                    errores.append("El DNI debe tener exactamente 8 dígitos")
+                else:
+                    # Verificar si el DNI ya existe
+                    try:
+                        if service.verificar_dni_existente(dni):
+                            errores.append("El DNI ya está registrado en el sistema")
+                    except Exception as e:
+                        errores.append(f"Error al verificar DNI: {e}")
+            
+            # Mostrar errores o proceder con el registro
+            if errores:
+                for error in errores:
+                    st.error(f"❌ {error}")
+            else:
                 try:
-                    if not dni.isdigit() or len(dni) < 8:
-                        st.error("❌ El DNI debe contener solo números y tener al menos 8 dígitos")
+                    estudiante_id = service.registrar(dni, nombre, apellido, edad, seccion)
+                    if estudiante_id:
+                        st.success(f"✅ Estudiante **{nombre} {apellido}** registrado correctamente con ID: {estudiante_id}")
+                        # Limpiar el formulario
+                        st.rerun()
                     else:
-                        estudiante_id = service.registrar(dni, nombre, apellido, edad, seccion)
-                        if estudiante_id:
-                            st.success(f"✅ Estudiante **{nombre} {apellido}** registrado correctamente con ID: {estudiante_id}")
-                        else:
-                            st.error("❌ Error al registrar el estudiante")
+                        st.error("❌ Error al registrar el estudiante")
                 except ValueError as e:
                     st.error(f"❌ {e}")
-            else:
-                st.error("❌ Por favor complete todos los campos obligatorios (*)")
+                except Exception as e:
+                    st.error(f"❌ Error inesperado: {e}")
 
 def editar_estudiante(service):
     st.subheader("✏️ Editar Información de Estudiante")
