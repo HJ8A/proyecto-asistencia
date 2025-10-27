@@ -48,7 +48,7 @@ def main():
         estudiantes_page.gestion_estudiantes(estudiantes_service)
 
     elif opcion == "📝 Registrar Asistencias":
-        asistencias_page.registrar_asistencias(asistencias_service)
+        asistencias_page.registrar_asistencias(asistencias_service , db)
 
     elif opcion == "📈 Reportes y Estadísticas":
         reportes_page.mostrar_reportes(db)

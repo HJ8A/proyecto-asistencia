@@ -2,6 +2,10 @@
 import sqlite3
 import os
 from datetime import datetime
+import qrcode
+import io
+import base64
+import uuid
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 DB_PATH = os.path.join(BASE_DIR, "asistencias.db")
@@ -69,6 +73,26 @@ class DatabaseManager:
         conn.close()
 
     # ---------------- MÉTODOS DE OPERACIONES ---------------- #
+    def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido):
+        """Genera un código QR único para el estudiante"""
+        # Crear un identificador único
+        qr_data = f"EST_{estudiante_id}_{dni}_{uuid.uuid4().hex[:8]}"
+        
+        # Generar QR
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+        
+        # Crear imagen QR
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        return qr_data, qr_img
+
 
     def agregar_estudiante(self, dni, nombre, apellido, edad, seccion=None):
         conn = self._get_connection()
@@ -78,8 +102,14 @@ class DatabaseManager:
                 INSERT INTO estudiantes (dni, nombre, apellido, edad, seccion)
                 VALUES (?, ?, ?, ?, ?)
             """, (dni, nombre, apellido, edad, seccion))
+            estudiante_id = cursor.lastrowid
+            
+            # Generar y guardar QR
+            qr_data, qr_img = self.generar_qr_estudiante(estudiante_id, dni, nombre, apellido)
+            cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
+            
             conn.commit()
-            return cursor.lastrowid
+            return estudiante_id
         except sqlite3.IntegrityError:
             raise ValueError("El DNI ya existe en la base de datos")
         except Exception as e:
@@ -99,7 +129,10 @@ class DatabaseManager:
     def obtener_estudiante_por_id(self, estudiante_id):
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, dni, nombre, apellido, edad, seccion FROM estudiantes WHERE id = ?", (estudiante_id,))
+        cursor.execute("""
+            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro, activo, qr_code 
+            FROM estudiantes WHERE id = ?
+        """, (estudiante_id,))
         data = cursor.fetchone()
         conn.close()
         return data
@@ -269,5 +302,22 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def obtener_estudiante_por_qr(self, qr_data):
+        """Obtiene estudiante por código QR"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, dni, nombre, apellido, edad, seccion 
+                FROM estudiantes 
+                WHERE qr_code = ? AND activo = 1
+            """, (qr_data,))
+            data = cursor.fetchone()
+            return data
+        except Exception as e:
+            print(f"❌ Error obteniendo estudiante por QR: {e}")
+            return None
+        finally:
+            conn.close()
 
 

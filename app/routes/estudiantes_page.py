@@ -1,3 +1,5 @@
+import io
+import qrcode
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -6,13 +8,14 @@ from app.utils.camara_utils import CamaraManager
 def gestion_estudiantes(service):
     st.header("👥 Gestión de Estudiantes")
     
-    tab1, tab2, tab3, tab4, tab5, tab6= st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7= st.tabs([
         "📋 Lista de Estudiantes", 
         "➕ Registrar Nuevo",
         "✏️ Editar Estudiante",
         "🚫 Desactivar Estudiante",
         "🔄 Estudiantes Desactivados",
-        "📷 Capturar Rostros"
+        "📷 Capturar Rostros",
+        "📄 Descargar QR"
     ])
 
     with tab1:
@@ -32,6 +35,9 @@ def gestion_estudiantes(service):
 
     with tab6:
         capturar_rostros(service)
+
+    with tab7:
+        descargar_qr_estudiantes(service)
 
 
 def mostrar_lista_estudiantes(service):
@@ -225,7 +231,7 @@ def editar_estudiante(service):
                         help="Sección o grupo del estudiante"
                     )
                 
-                st.markdown("**\* Campos obligatorios**")
+                st.markdown("**\\* Campos obligatorios**")
                 
                 if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
                     if dni and nombre and apellido and edad:
@@ -376,10 +382,100 @@ def mostrar_estudiantes_desactivados(service):
                         st.error("❌ Error al reactivar el estudiante")
             st.divider()
 
-
-
-
-
-
-
-
+def descargar_qr_estudiantes(service):
+    st.subheader("📄 Descargar Códigos QR")
+    
+    estudiantes = service.obtener_activos()
+    if not estudiantes:
+        st.warning("⚠️ No hay estudiantes activos.")
+        return
+    
+    st.info("""
+    **Instrucciones:**
+    - Selecciona un estudiante
+    - Descarga su código QR único
+    - Imprime el QR en el carnet del estudiante
+    - El QR servirá como respaldo cuando el reconocimiento facial falle
+    """)
+    
+    # Selector de estudiante
+    opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
+    estudiante_seleccionado = st.selectbox("Seleccionar Estudiante", opciones, key="descargar_qr")
+    
+    if estudiante_seleccionado:
+        estudiante_index = opciones.index(estudiante_seleccionado)
+        estudiante_id = estudiantes[estudiante_index][0]
+        nombre = estudiantes[estudiante_index][2]
+        apellido = estudiantes[estudiante_index][3]
+        dni = estudiantes[estudiante_index][1]
+        
+        # Obtener datos del estudiante para generar QR
+        datos_estudiante = service.obtener_por_id(estudiante_id)
+        if datos_estudiante:
+            # El qr_code debería estar en el índice 8
+            if len(datos_estudiante) > 8:
+                qr_data = datos_estudiante[8]  # qr_code está en la posición 8
+            else:
+                # Si no hay qr_code, generar uno nuevo
+                try:
+                    qr_data, qr_img = service.db.generar_qr_estudiante(estudiante_id, dni, nombre, apellido)
+                    # Actualizar la base de datos con el nuevo QR
+                    conn = service.db._get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
+                    conn.commit()
+                    conn.close()
+                    st.info("🔄 Se generó un nuevo código QR para este estudiante")
+                except Exception as e:
+                    st.error(f"❌ Error generando QR: {e}")
+                    return
+            
+            if not qr_data:
+                st.error("❌ Este estudiante no tiene código QR generado.")
+                return
+            
+            # Crear imagen QR
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_data)
+            qr.make(fit=True)
+            
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            
+            # ✅ CORRECCIÓN: Convertir PIL Image a bytes para Streamlit
+            buf = io.BytesIO()
+            qr_img.save(buf, format="PNG")
+            buf.seek(0)
+            qr_image_bytes = buf.getvalue()
+            
+            # Mostrar información
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # ✅ CORRECCIÓN: Usar los bytes en lugar del objeto PIL
+                st.image(qr_image_bytes, caption=f"QR de {nombre} {apellido}", width=200)
+                
+            with col2:
+                st.info(f"""
+                **Información del Estudiante:**
+                - **Nombre:** {nombre} {apellido}
+                - **DNI:** {dni}
+                - **ID:** {estudiante_id}
+                - **Código QR:** `{qr_data}`
+                """)
+            
+            # Botón para descargar
+            st.download_button(
+                label="📥 Descargar QR",
+                data=qr_image_bytes,  # ✅ Usar los mismos bytes
+                file_name=f"QR_{nombre}_{apellido}_{dni}.png",
+                mime="image/png",
+                use_container_width=True,
+                type="primary"
+            )
+            
+            st.success("✅ El código QR está listo para descargar e imprimir en el carnet del estudiante.")  
