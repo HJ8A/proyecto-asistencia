@@ -1,4 +1,3 @@
-# app/data/database.py
 import sqlite3
 import os
 from datetime import datetime
@@ -24,16 +23,74 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         cursor.executescript("""
+            -- Tabla de niveles educativos
+            CREATE TABLE IF NOT EXISTS niveles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT UNIQUE NOT NULL,
+                descripcion TEXT,
+                activo BOOLEAN DEFAULT 1
+            );
+
+            -- Tabla de grados
+            CREATE TABLE IF NOT EXISTS grados (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nivel_id INTEGER NOT NULL,
+                nombre TEXT NOT NULL,
+                numero INTEGER NOT NULL,
+                activo BOOLEAN DEFAULT 1,
+                FOREIGN KEY (nivel_id) REFERENCES niveles (id) ON DELETE CASCADE,
+                UNIQUE(nivel_id, numero)
+            );
+
+            -- Tabla de secciones
+            CREATE TABLE IF NOT EXISTS secciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grado_id INTEGER NOT NULL,
+                nombre TEXT NOT NULL,
+                letra TEXT NOT NULL,
+                capacidad INTEGER DEFAULT 30,
+                activo BOOLEAN DEFAULT 1,
+                FOREIGN KEY (grado_id) REFERENCES grados (id) ON DELETE CASCADE,
+                UNIQUE(grado_id, letra)
+            );
+
+            -- Tabla de estudiantes
             CREATE TABLE IF NOT EXISTS estudiantes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 dni TEXT UNIQUE NOT NULL,
                 nombre TEXT NOT NULL,
                 apellido TEXT NOT NULL,
                 edad INTEGER NOT NULL,
-                seccion TEXT,
+                seccion_id INTEGER,
                 fecha_registro DATE DEFAULT CURRENT_DATE,
                 activo BOOLEAN DEFAULT 1,
-                qr_code TEXT UNIQUE
+                qr_code TEXT UNIQUE,
+                FOREIGN KEY (seccion_id) REFERENCES secciones (id)
+            );
+
+            -- Tabla de profesores
+            CREATE TABLE IF NOT EXISTS profesores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dni TEXT UNIQUE NOT NULL,
+                nombre TEXT NOT NULL,
+                apellido TEXT NOT NULL,
+                email TEXT,
+                telefono TEXT,
+                activo BOOLEAN DEFAULT 1,
+                fecha_registro DATE DEFAULT CURRENT_DATE
+            );
+
+            -- Tabla de asignación de profesores a secciones
+            CREATE TABLE IF NOT EXISTS profesor_seccion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profesor_id INTEGER NOT NULL,
+                seccion_id INTEGER NOT NULL,
+                asignatura TEXT,
+                fecha_asignacion DATE DEFAULT CURRENT_DATE,
+                activo BOOLEAN DEFAULT 1,
+                FOREIGN KEY (profesor_id) REFERENCES profesores (id) ON DELETE CASCADE,
+                FOREIGN KEY (seccion_id) REFERENCES secciones (id) ON DELETE CASCADE,
+                UNIQUE(profesor_id, seccion_id, asignatura)
             );
 
             CREATE TABLE IF NOT EXISTS encodings_faciales (
@@ -48,12 +105,14 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS asistencias (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 estudiante_id INTEGER,
+                seccion_id INTEGER,
                 fecha DATE NOT NULL,
                 hora TIME NOT NULL,
                 metodo_deteccion TEXT CHECK(metodo_deteccion IN ('rostro','qr')),
                 estado TEXT CHECK(estado IN ('presente','tardanza','ausente')),
                 confianza REAL,
-                FOREIGN KEY (estudiante_id) REFERENCES estudiantes (id)
+                FOREIGN KEY (estudiante_id) REFERENCES estudiantes (id),
+                FOREIGN KEY (seccion_id) REFERENCES secciones (id)
             );
 
             CREATE TABLE IF NOT EXISTS configuracion (
@@ -64,44 +123,186 @@ class DatabaseManager:
             );
         """)
 
+        # Insertar datos básicos
         cursor.execute("""
             INSERT OR IGNORE INTO configuracion (id, hora_entrada, tolerancia_minutos, ultima_actualizacion)
             VALUES (1, '08:00:00', 15, CURRENT_TIMESTAMP);
         """)
 
+        # Insertar niveles educativos básicos
+        niveles = [
+            (1, 'Inicial', 'Educación Inicial'),
+            (2, 'Primaria', 'Educación Primaria'),
+            (3, 'Secundaria', 'Educación Secundaria')
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO niveles (id, nombre, descripcion) VALUES (?, ?, ?)", niveles)
+
+        # Insertar grados para cada nivel
+        grados = [
+            # Inicial
+            (1, 1, '3 años', 1), (2, 1, '4 años', 2), (3, 1, '5 años', 3),
+            # Primaria
+            (4, 2, '1ro Primaria', 1), (5, 2, '2do Primaria', 2), (6, 2, '3ro Primaria', 3),
+            (7, 2, '4to Primaria', 4), (8, 2, '5to Primaria', 5), (9, 2, '6to Primaria', 6),
+            # Secundaria
+            (10, 3, '1ro Secundaria', 1), (11, 3, '2do Secundaria', 2), (12, 3, '3ro Secundaria', 3),
+            (13, 3, '4to Secundaria', 4), (14, 3, '5to Secundaria', 5)
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO grados (id, nivel_id, nombre, numero) VALUES (?, ?, ?, ?)", grados)
+
+        # Insertar algunas secciones de ejemplo
+        secciones = [
+            (1, 4, '1ro A', 'A'), (2, 4, '1ro B', 'B'),
+            (3, 5, '2do A', 'A'), (4, 5, '2do B', 'B'),
+            (5, 10, '1ro Sec A', 'A'), (6, 10, '1ro Sec B', 'B')
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO secciones (id, grado_id, nombre, letra) VALUES (?, ?, ?, ?)", secciones)
+
         conn.commit()
         conn.close()
 
-    # ---------------- MÉTODOS DE OPERACIONES ---------------- #
-    def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido):
-        """Genera un código QR único para el estudiante"""
-        # Crear un identificador único
-        qr_data = f"EST_{estudiante_id}_{dni}_{uuid.uuid4().hex[:8]}"
-        
-        # Generar QR
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(qr_data)
-        qr.make(fit=True)
-        
-        # Crear imagen QR
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-        
-        return qr_data, qr_img
+    # ---------------- MÉTODOS PARA SECCIONES ---------------- #
+    
+    def obtener_secciones(self):
+        """Obtiene todas las secciones con información de grado y nivel"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                s.id, 
+                s.nombre, 
+                s.letra,
+                g.nombre as grado_nombre,
+                n.nombre as nivel_nombre,
+                s.capacidad,
+                s.activo
+            FROM secciones s
+            JOIN grados g ON s.grado_id = g.id
+            JOIN niveles n ON g.nivel_id = n.id
+            ORDER BY n.id, g.numero, s.letra
+        """)
+        data = cursor.fetchall()
+        conn.close()
+        return data
 
+    def obtener_seccion_por_id(self, seccion_id):
+        """Obtiene una sección específica por ID"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                s.id, 
+                s.nombre, 
+                s.letra,
+                g.nombre as grado_nombre,
+                n.nombre as nivel_nombre,
+                s.capacidad,
+                s.activo
+            FROM secciones s
+            JOIN grados g ON s.grado_id = g.id
+            JOIN niveles n ON g.nivel_id = n.id
+            WHERE s.id = ?
+        """, (seccion_id,))
+        data = cursor.fetchone()
+        conn.close()
+        return data
 
-    def agregar_estudiante(self, dni, nombre, apellido, edad, seccion=None):
+    def obtener_secciones_activas(self):
+        """Obtiene solo secciones activas"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                s.id, 
+                s.nombre, 
+                s.letra,
+                g.nombre as grado_nombre,
+                n.nombre as nivel_nombre
+            FROM secciones s
+            JOIN grados g ON s.grado_id = g.id
+            JOIN niveles n ON g.nivel_id = n.id
+            WHERE s.activo = 1
+            ORDER BY n.id, g.numero, s.letra
+        """)
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    def agregar_seccion(self, grado_id, nombre, letra, capacidad=30):
+        """Agrega una nueva sección"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO estudiantes (dni, nombre, apellido, edad, seccion)
+                INSERT INTO secciones (grado_id, nombre, letra, capacidad)
+                VALUES (?, ?, ?, ?)
+            """, (grado_id, nombre, letra, capacidad))
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError("La sección ya existe")
+        except Exception as e:
+            print("❌ Error al agregar sección:", e)
+            return None
+        finally:
+            conn.close()
+
+    # ---------------- MÉTODOS PARA GRADOS ---------------- #
+    
+    def obtener_grados(self):
+        """Obtiene todos los grados con información de nivel"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                g.id,
+                g.nombre,
+                g.numero,
+                n.nombre as nivel_nombre,
+                g.activo
+            FROM grados g
+            JOIN niveles n ON g.nivel_id = n.id
+            ORDER BY n.id, g.numero
+        """)
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    def obtener_grados_por_nivel(self, nivel_id):
+        """Obtiene grados por nivel específico"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, nombre, numero
+            FROM grados 
+            WHERE nivel_id = ? AND activo = 1
+            ORDER BY numero
+        """, (nivel_id,))
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    # ---------------- MÉTODOS PARA NIVELES ---------------- #
+    
+    def obtener_niveles(self):
+        """Obtiene todos los niveles educativos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nombre, descripcion FROM niveles WHERE activo = 1 ORDER BY id")
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    # ---------------- MÉTODOS MODIFICADOS PARA ESTUDIANTES ---------------- #
+
+    def agregar_estudiante(self, dni, nombre, apellido, edad, seccion_id=None):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO estudiantes (dni, nombre, apellido, edad, seccion_id)
                 VALUES (?, ?, ?, ?, ?)
-            """, (dni, nombre, apellido, edad, seccion))
+            """, (dni, nombre, apellido, edad, seccion_id))
             estudiante_id = cursor.lastrowid
             
             # Generar y guardar QR
@@ -121,7 +322,18 @@ class DatabaseManager:
     def obtener_estudiantes(self):
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro FROM estudiantes")
+        cursor.execute("""
+            SELECT 
+                e.id, 
+                e.dni, 
+                e.nombre, 
+                e.apellido, 
+                e.edad, 
+                s.nombre as seccion_nombre,
+                e.fecha_registro
+            FROM estudiantes e
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+        """)
         data = cursor.fetchall()
         conn.close()
         return data
@@ -130,22 +342,34 @@ class DatabaseManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro, activo, qr_code 
-            FROM estudiantes WHERE id = ?
+            SELECT 
+                e.id, 
+                e.dni, 
+                e.nombre, 
+                e.apellido, 
+                e.edad, 
+                e.seccion_id,
+                s.nombre as seccion_nombre,
+                e.fecha_registro, 
+                e.activo, 
+                e.qr_code
+            FROM estudiantes e
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+            WHERE e.id = ?
         """, (estudiante_id,))
         data = cursor.fetchone()
         conn.close()
         return data
 
-    def actualizar_estudiante(self, estudiante_id, dni, nombre, apellido, edad, seccion):
+    def actualizar_estudiante(self, estudiante_id, dni, nombre, apellido, edad, seccion_id):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute("""
                 UPDATE estudiantes 
-                SET dni=?, nombre=?, apellido=?, edad=?, seccion=?
+                SET dni=?, nombre=?, apellido=?, edad=?, seccion_id=?
                 WHERE id=?
-            """, (dni, nombre, apellido, edad, seccion, estudiante_id))
+            """, (dni, nombre, apellido, edad, seccion_id, estudiante_id))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -155,6 +379,120 @@ class DatabaseManager:
             return False
         finally:
             conn.close()
+
+    def obtener_estudiantes_por_seccion(self, seccion_id):
+        """Obtiene estudiantes por sección específica"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                id, dni, nombre, apellido, edad, fecha_registro
+            FROM estudiantes 
+            WHERE seccion_id = ? AND activo = 1
+            ORDER BY apellido, nombre
+        """, (seccion_id,))
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    # ---------------- MÉTODOS MODIFICADOS PARA ASISTENCIAS ---------------- #
+
+    def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza):
+        """Registrar una asistencia en la base de datos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            # Obtener la sección del estudiante
+            cursor.execute("SELECT seccion_id FROM estudiantes WHERE id = ?", (estudiante_id,))
+            estudiante = cursor.fetchone()
+            seccion_id = estudiante[0] if estudiante else None
+            
+            cursor.execute('''
+                INSERT INTO asistencias (estudiante_id, seccion_id, fecha, hora, metodo_deteccion, estado, confianza)
+                VALUES (?, ?, DATE('now'), TIME('now'), ?, 'presente', ?)
+            ''', (estudiante_id, seccion_id, metodo_deteccion, confianza))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ Error al registrar asistencia: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def obtener_asistencias_hoy(self):
+        """Obtiene todas las asistencias registradas en la fecha actual"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        fecha_actual = datetime.now().date()
+        
+        cursor.execute("""
+            SELECT 
+                e.nombre, 
+                e.apellido, 
+                e.dni, 
+                s.nombre as seccion_nombre,
+                a.hora, 
+                a.metodo_deteccion, 
+                a.confianza
+            FROM asistencias a
+            JOIN estudiantes e ON a.estudiante_id = e.id
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+            WHERE a.fecha = ?
+            ORDER BY a.hora DESC
+        """, (fecha_actual,))
+        
+        asistencias = cursor.fetchall()
+        conn.close()
+        return asistencias
+
+    def obtener_asistencias_por_seccion(self, seccion_id, fecha=None):
+        """Obtiene asistencias por sección y fecha"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        if fecha is None:
+            fecha = datetime.now().date()
+        
+        cursor.execute("""
+            SELECT 
+                e.nombre, 
+                e.apellido, 
+                e.dni,
+                a.hora, 
+                a.metodo_deteccion, 
+                a.confianza
+            FROM asistencias a
+            JOIN estudiantes e ON a.estudiante_id = e.id
+            WHERE a.seccion_id = ? AND a.fecha = ?
+            ORDER BY a.hora DESC
+        """, (seccion_id, fecha))
+        
+        asistencias = cursor.fetchall()
+        conn.close()
+        return asistencias
+
+    # ---------------- MÉTODOS EXISTENTES (se mantienen igual) ---------------- #
+
+    def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido):
+        """Genera un código QR único para el estudiante"""
+        # Crear un identificador único
+        qr_data = f"EST_{estudiante_id}_{dni}_{uuid.uuid4().hex[:8]}"
+        
+        # Generar QR
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+        
+        # Crear imagen QR
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        return qr_data, qr_img
 
     def guardar_encoding_facial(self, estudiante_id, encoding, imagen_path):
         import pickle
@@ -190,23 +528,6 @@ class DatabaseManager:
             ids.append(eid)
             encodings.append(pickle.loads(enc))
         return encodings, nombres, ids
-    
-    def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza):
-        """Registrar una asistencia en la base de datos"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute('''
-                INSERT INTO asistencias (estudiante_id, fecha, hora, metodo_deteccion, estado, confianza)
-                VALUES (?, DATE('now'), TIME('now'), ?, 'presente', ?)
-            ''', (estudiante_id, metodo_deteccion, confianza))
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"❌ Error al registrar asistencia: {e}")
-            return False
-        finally:
-            conn.close()
 
     def desactivar_estudiante(self, estudiante_id):
         """Desactiva un estudiante (eliminación lógica)"""
@@ -227,14 +548,22 @@ class DatabaseManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro 
-            FROM estudiantes 
-            WHERE activo = 1
+            SELECT 
+                e.id, 
+                e.dni, 
+                e.nombre, 
+                e.apellido, 
+                e.edad, 
+                s.nombre as seccion_nombre,
+                e.fecha_registro 
+            FROM estudiantes e
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+            WHERE e.activo = 1
         """)
         data = cursor.fetchall()
         conn.close()
         return data
-    
+
     def reactivar_estudiante(self, estudiante_id):
         """Reactiva un estudiante"""
         conn = self._get_connection()
@@ -250,43 +579,25 @@ class DatabaseManager:
             conn.close()
 
     def obtener_estudiantes_inactivos(self):
-
         """Obtiene estudiantes inactivos"""
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, dni, nombre, apellido, edad, seccion, fecha_registro 
-            FROM estudiantes 
-            WHERE activo = 0
+            SELECT 
+                e.id, 
+                e.dni, 
+                e.nombre, 
+                e.apellido, 
+                e.edad, 
+                s.nombre as seccion_nombre,
+                e.fecha_registro 
+            FROM estudiantes e
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+            WHERE e.activo = 0
         """)
         data = cursor.fetchall()
         conn.close()
         return data
-    
-    def obtener_asistencias_hoy(self):
-        """Obtiene todas las asistencias registradas en la fecha actual"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        fecha_actual = datetime.now().date()
-        
-        cursor.execute("""
-            SELECT 
-                e.nombre, 
-                e.apellido, 
-                e.dni, 
-                a.hora, 
-                a.metodo_deteccion, 
-                a.confianza
-            FROM asistencias a
-            JOIN estudiantes e ON a.estudiante_id = e.id
-            WHERE a.fecha = ?
-            ORDER BY a.hora DESC
-        """, (fecha_actual,))
-        
-        asistencias = cursor.fetchall()
-        conn.close()
-        return asistencias
 
     def verificar_dni_existente(self, dni):
         """Verifica si un DNI ya existe en la base de datos"""
@@ -308,9 +619,17 @@ class DatabaseManager:
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                SELECT id, dni, nombre, apellido, edad, seccion 
-                FROM estudiantes 
-                WHERE qr_code = ? AND activo = 1
+                SELECT 
+                    e.id, 
+                    e.dni, 
+                    e.nombre, 
+                    e.apellido, 
+                    e.edad, 
+                    e.seccion_id,
+                    s.nombre as seccion_nombre
+                FROM estudiantes e
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                WHERE e.qr_code = ? AND e.activo = 1
             """, (qr_data,))
             data = cursor.fetchone()
             return data
@@ -319,5 +638,115 @@ class DatabaseManager:
             return None
         finally:
             conn.close()
+
+    def obtener_profesores(self):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, dni, nombre, apellido, email, telefono, activo, fecha_registro FROM profesores")
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    def obtener_profesor_por_id(self, profesor_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, dni, nombre, apellido, email, telefono, activo FROM profesores WHERE id = ?", (profesor_id,))
+        data = cursor.fetchone()
+        conn.close()
+        return data
+
+    def agregar_profesor(self, dni, nombre, apellido, email=None, telefono=None):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO profesores (dni, nombre, apellido, email, telefono)
+                VALUES (?, ?, ?, ?, ?)
+            """, (dni, nombre, apellido, email, telefono))
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError("El DNI ya existe en la base de datos")
+        except Exception as e:
+            print("❌ Error al agregar profesor:", e)
+            return None
+        finally:
+            conn.close()
+
+    def actualizar_profesor(self, profesor_id, dni, nombre, apellido, email, telefono):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE profesores 
+                SET dni=?, nombre=?, apellido=?, email=?, telefono=?
+                WHERE id=?
+            """, (dni, nombre, apellido, email, telefono, profesor_id))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            raise ValueError("El DNI ya existe en la base de datos")
+        except Exception as e:
+            print("❌ Error al actualizar profesor:", e)
+            return False
+        finally:
+            conn.close()
+
+    def desactivar_profesor(self, profesor_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE profesores SET activo = 0 WHERE id = ?", (profesor_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("❌ Error al desactivar profesor:", e)
+            return False
+        finally:
+            conn.close()
+
+    def reactivar_profesor(self, profesor_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE profesores SET activo = 1 WHERE id = ?", (profesor_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            print("❌ Error al reactivar profesor:", e)
+            return False
+        finally:
+            conn.close()
+
+    def obtener_profesores_activos(self):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, dni, nombre, apellido, email, telefono FROM profesores WHERE activo = 1")
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    def obtener_profesores_inactivos(self):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, dni, nombre, apellido, email, telefono FROM profesores WHERE activo = 0")
+        data = cursor.fetchall()
+        conn.close()
+        return data
+
+    def verificar_dni_profesor_existente(self, dni):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id FROM profesores WHERE dni = ?", (dni,))
+            resultado = cursor.fetchone()
+            return resultado is not None
+        except Exception as e:
+            print("❌ Error al verificar DNI de profesor:", e)
+            return False
+        finally:
+            conn.close()
+
+
 
 

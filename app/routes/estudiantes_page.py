@@ -68,8 +68,11 @@ def mostrar_lista_estudiantes(service):
 def registrar_nuevo_estudiante(service):
     st.subheader("🎓 Registrar Nuevo Estudiante")
     
+    # Obtener secciones activas para el selector
+    secciones = service.obtener_secciones_activas()
+    opciones_secciones = [("", "Seleccionar sección...")] + [(s[0], f"{s[4]} - {s[3]} - {s[1]}") for s in secciones]
+    
     with st.form("nuevo_estudiante", clear_on_submit=True):
-        # Título con mejor estilo
         st.markdown(
             '<div style="color: #1a1a1a; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; text-align: center;">'
             '📝 Información Personal'
@@ -109,14 +112,18 @@ def registrar_nuevo_estudiante(service):
                 help="Apellido del estudiante (obligatorio)",
                 key="apellido_input"
             )
-            seccion = st.text_input(
-                "Sección", 
-                placeholder="3-A",
-                help="Sección o grupo (opcional)",
-                key="seccion_input"
+            # Selector de sección
+            seccion_seleccionada = st.selectbox(
+                "Sección*",
+                options=opciones_secciones,
+                format_func=lambda x: x[1],
+                help="Seleccione la sección del estudiante",
+                key="seccion_select"
             )
         
-        # Mensaje de campos obligatorios mejorado
+        # Obtener el ID de la sección seleccionada
+        seccion_id = seccion_seleccionada[0] if seccion_seleccionada[0] != "" else None
+        
         st.markdown(
             '<div class="campos-obligatorios">* Campos obligatorios</div>',
             unsafe_allow_html=True
@@ -141,6 +148,8 @@ def registrar_nuevo_estudiante(service):
                 errores.append("El apellido es obligatorio")
             if not edad:
                 errores.append("La edad es obligatoria")
+            if not seccion_id:
+                errores.append("La sección es obligatoria")
             
             # Validaciones específicas del DNI
             if dni:
@@ -149,23 +158,20 @@ def registrar_nuevo_estudiante(service):
                 elif len(dni) != 8:
                     errores.append("El DNI debe tener exactamente 8 dígitos")
                 else:
-                    # Verificar si el DNI ya existe
                     try:
                         if service.verificar_dni_existente(dni):
                             errores.append("El DNI ya está registrado en el sistema")
                     except Exception as e:
                         errores.append(f"Error al verificar DNI: {e}")
             
-            # Mostrar errores o proceder con el registro
             if errores:
                 for error in errores:
                     st.error(f"❌ {error}")
             else:
                 try:
-                    estudiante_id = service.registrar(dni, nombre, apellido, edad, seccion)
+                    estudiante_id = service.registrar(dni, nombre, apellido, edad, seccion_id)
                     if estudiante_id:
                         st.success(f"✅ Estudiante **{nombre} {apellido}** registrado correctamente con ID: {estudiante_id}")
-                        # Limpiar el formulario
                         st.rerun()
                     else:
                         st.error("❌ Error al registrar el estudiante")
@@ -177,12 +183,15 @@ def registrar_nuevo_estudiante(service):
 def editar_estudiante(service):
     st.subheader("✏️ Editar Información de Estudiante")
     
-    estudiantes = service.obtener_activos()  # Solo mostrar activos
+    estudiantes = service.obtener_activos()
     if not estudiantes:
         st.info("📝 No hay estudiantes activos para editar.")
         return
 
-    # Crear opciones más descriptivas
+    # Obtener secciones para el selector
+    secciones = service.obtener_secciones_activas()
+    opciones_secciones = [("", "Seleccionar sección...")] + [(s[0], f"{s[4]} - {s[3]} - {s[1]}") for s in secciones]
+
     opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
     seleccionado = st.selectbox("Seleccionar Estudiante a Editar", opciones, key="editar_estudiante")
     
@@ -191,6 +200,14 @@ def editar_estudiante(service):
         datos = service.obtener_por_id(estudiante_id)
         
         if datos:
+            # Encontrar la sección actual del estudiante
+            seccion_actual_id = datos[5]  # seccion_id está en índice 5
+            seccion_actual_index = 0
+            for i, (id_seccion, _) in enumerate(opciones_secciones):
+                if id_seccion == seccion_actual_id:
+                    seccion_actual_index = i
+                    break
+            
             with st.form("editar_estudiante"):
                 st.markdown('<div class="form-title">📝 Editar Información del Estudiante</div>', unsafe_allow_html=True)
                 
@@ -224,22 +241,28 @@ def editar_estudiante(service):
                         placeholder="Ej: Pérez",
                         help="Apellido del estudiante"
                     )
-                    seccion = st.text_input(
-                        "Sección", 
-                        value=datos[5] or "",
-                        placeholder="Ej: A-101",
-                        help="Sección o grupo del estudiante"
+                    # Selector de sección
+                    seccion_seleccionada = st.selectbox(
+                        "Sección *",
+                        options=opciones_secciones,
+                        index=seccion_actual_index,
+                        format_func=lambda x: x[1],
+                        help="Seleccione la sección del estudiante",
+                        key="editar_seccion"
                     )
+                
+                # Obtener el ID de la sección seleccionada
+                seccion_id = seccion_seleccionada[0] if seccion_seleccionada[0] != "" else None
                 
                 st.markdown("**\\* Campos obligatorios**")
                 
                 if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
-                    if dni and nombre and apellido and edad:
+                    if dni and nombre and apellido and edad and seccion_id:
                         try:
-                            if not dni.isdigit() or len(dni) < 8:
-                                st.error("❌ El DNI debe contener solo números y tener al menos 8 dígitos")
+                            if not dni.isdigit() or len(dni) != 8:
+                                st.error("❌ El DNI debe contener solo números y tener exactamente 8 dígitos")
                             else:
-                                if service.actualizar(estudiante_id, dni, nombre, apellido, edad, seccion):
+                                if service.actualizar(estudiante_id, dni, nombre, apellido, edad, seccion_id):
                                     st.success("✅ Información del estudiante actualizada correctamente")
                                     st.rerun()
                                 else:
@@ -248,7 +271,7 @@ def editar_estudiante(service):
                             st.error(f"❌ {e}")
                     else:
                         st.error("❌ Por favor complete todos los campos obligatorios")
-                        
+
 def capturar_rostros(service):
     st.subheader("📷 Captura de Rostros para Reconocimiento Facial")
     
@@ -297,11 +320,12 @@ def capturar_rostros(service):
                 
                 # Llamar a la función de captura
                 try:
-                    exito = CamaraManager.capturar_rostros_interactivo(
+                    # ✅ CORRECCIÓN: Creamos una instancia de CamaraManager con la base de datos
+                    camara_manager = CamaraManager(service.db)
+                    exito = camara_manager.capturar_rostros_interactivo(
                         estudiante_id=estudiante_id,
                         nombre=nombre,
                         apellido=apellido,
-                        db=service.db,
                         num_capturas=5
                     )
                     

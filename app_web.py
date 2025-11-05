@@ -4,11 +4,13 @@ from app.routes import (
     estudiantes_page,
     asistencias_page,
     reportes_page,
-    configuracion_page
+    configuracion_page,
+    gestion_academica_page
 )
 from app.data.database import DatabaseManager
 from app.services.estudiantes_service import EstudianteService
 from app.services.asistencias_service import AsistenciaService
+from app.services.gestion_academica_service import GestionAcademicaService
 
 # Configurar la página
 st.set_page_config(
@@ -26,6 +28,7 @@ def main():
     db = DatabaseManager()
     estudiantes_service = EstudianteService(db)
     asistencias_service = AsistenciaService(db)
+    gestion_academica_service = GestionAcademicaService(db)
 
     # Sidebar de navegación
     st.sidebar.title("Navegación")
@@ -33,7 +36,8 @@ def main():
         "Selecciona una opción:",
         [
             "📊 Dashboard",
-            "👥 Gestión de Estudiantes", 
+            "👥 Gestión de Estudiantes",
+            "🏫 Gestión Académica",
             "📝 Registrar Asistencias",
             "📈 Reportes y Estadísticas",
             "⚙️ Configuración"
@@ -49,6 +53,9 @@ def main():
 
     elif opcion == "📝 Registrar Asistencias":
         asistencias_page.registrar_asistencias(asistencias_service , db)
+
+    elif opcion == "🏫 Gestión Académica":  # Nueva ruta
+        gestion_academica_page.gestion_academica(gestion_academica_service)
 
     elif opcion == "📈 Reportes y Estadísticas":
         reportes_page.mostrar_reportes(db)

@@ -54,14 +54,12 @@ class CamaraManager:
             self.cap.release()
             cv2.destroyAllWindows()
 
-    @staticmethod
-    def capturar_rostros_interactivo(estudiante_id, nombre, apellido, db, num_capturas=5):
+    def capturar_rostros_interactivo(self, estudiante_id, nombre, apellido, num_capturas=5):
         """Función mejorada para captura de rostros"""
         print(f"📸 Capturando {num_capturas} imágenes para: {nombre} {apellido}")
         print("Presiona ESPACIO para capturar, ESC para cancelar")
         
-        camara = CamaraManager()
-        if not camara.inicializar_camara():
+        if not self.inicializar_camara():
             print("❌ No se puede acceder a la cámara")
             return False
         
@@ -74,7 +72,7 @@ class CamaraManager:
         
         try:
             while capturas_exitosas < num_capturas:
-                frame, success = camara.capturar_frame()
+                frame, success = self.capturar_frame()
                 if not success:
                     print("❌ Error al capturar frame")
                     break
@@ -115,8 +113,8 @@ class CamaraManager:
                             face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
                             if face_encodings:
                                 encoding = face_encodings[0]
-                                # ✅ CORREGIDO: Pasar los 3 argumentos requeridos
-                                db.guardar_encoding_facial(estudiante_id, encoding, filename)
+                                # ✅ CORREGIDO: Usamos self.db en lugar del parámetro db
+                                self.db.guardar_encoding_facial(estudiante_id, encoding, filename)
                                 encoding_count += 1
                                 capturas_exitosas += 1
                                 print(f"✅ Imagen {capturas_exitosas} capturada y guardada")
@@ -142,7 +140,7 @@ class CamaraManager:
         except Exception as e:
             print(f"❌ Error durante la captura: {e}")
         finally:
-            camara.liberar_camara()
+            self.liberar_camara()
         
         print(f"📊 Resumen: {capturas_exitosas}/{num_capturas} imágenes capturadas, {encoding_count} encodings guardados")
         return capturas_exitosas > 0
