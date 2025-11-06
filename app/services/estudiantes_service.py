@@ -2,8 +2,8 @@ class EstudianteService:
     def __init__(self, db_manager):
         self.db = db_manager
 
-    def registrar(self, dni, nombre, apellido, edad, seccion_id):
-        return self.db.agregar_estudiante(dni, nombre, apellido, edad, seccion_id)
+    def registrar(self, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id):
+        return self.db.agregar_estudiante(dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id)
 
     def obtener_todos(self):
         return self.db.obtener_estudiantes()
@@ -11,8 +11,8 @@ class EstudianteService:
     def obtener_por_id(self, estudiante_id):
         return self.db.obtener_estudiante_por_id(estudiante_id)
 
-    def actualizar(self, estudiante_id, dni, nombre, apellido, edad, seccion_id):
-        return self.db.actualizar_estudiante(estudiante_id, dni, nombre, apellido, edad, seccion_id)
+    def actualizar(self, estudiante_id, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id):
+        return self.db.actualizar_estudiante(estudiante_id, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id)
     
     def desactivar(self, estudiante_id):
         return self.db.desactivar_estudiante(estudiante_id)
