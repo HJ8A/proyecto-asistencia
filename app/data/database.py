@@ -861,7 +861,7 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def actualizar_grado(self, grado_id, nombre, numero, activo):
+    def actualizar_grado(self,nivel_id, grado_id, nombre, numero, activo):
         """Actualiza un grado existente"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -870,7 +870,7 @@ class DatabaseManager:
                 UPDATE grados 
                 SET nivel_id=?, nombre=?, numero=?, activo=?
                 WHERE id=?
-            """, (nombre, numero, activo, grado_id))
+            """, (nivel_id, nombre, numero, activo, grado_id))
             conn.commit()
             return True
         except Exception as e:

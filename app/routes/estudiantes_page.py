@@ -41,7 +41,7 @@ def mostrar_lista_estudiantes(service):
     estudiantes = service.obtener_todos()
 
     if estudiantes:
-        # Cambiar las columnas para los nuevos campos
+        # Crear DataFrame con todos los datos
         df = pd.DataFrame(estudiantes, columns=[
             'ID', 'DNI', 'Nombre', 'Apellido', 'Fecha Nacimiento', 
             'Género', 'Teléfono', 'Email', 'Sección', 'Fecha Registro'
@@ -50,17 +50,29 @@ def mostrar_lista_estudiantes(service):
         # Calcular edad a partir de la fecha de nacimiento
         from datetime import date
         hoy = date.today()
-        df['Edad'] = df['Fecha Nacimiento'].apply(
-            lambda x: hoy.year - pd.to_datetime(x).year - 
-            ((hoy.month, hoy.day) < (pd.to_datetime(x).month, pd.to_datetime(x).day))
-            if pd.notna(x) else None
-        )
         
-        # Formatear fechas
-        df['Fecha Registro'] = pd.to_datetime(df['Fecha Registro']).dt.strftime('%d/%m/%Y')
-        df['Fecha Nacimiento'] = pd.to_datetime(df['Fecha Nacimiento']).dt.strftime('%d/%m/%Y')
+        def calcular_edad(fecha_nac):
+            if pd.isna(fecha_nac):
+                return None
+            try:
+                # Convertir a datetime si es string
+                if isinstance(fecha_nac, str):
+                    fecha_nac = pd.to_datetime(fecha_nac)
+                # Calcular edad
+                return hoy.year - fecha_nac.year - ((hoy.month, hoy.day) < (fecha_nac.month, fecha_nac.day))
+            except:
+                return None
         
-        st.dataframe(df, width='stretch', height=400)
+        df['Edad'] = df['Fecha Nacimiento'].apply(calcular_edad)
+        
+        df_display = df[[
+            'DNI', 'Nombre', 'Apellido', 'Edad', 'Género', 
+            'Teléfono', 'Email', 'Sección'
+        ]]
+        
+        df_display['Edad'] = df_display['Edad'].apply(lambda x: f"{int(x)} años" if pd.notna(x) else "N/A")
+        
+        st.dataframe(df_display, width='stretch', height=400)
         
         # Mostrar estadísticas actualizadas
         col1, col2, col3 = st.columns(3)
