@@ -150,7 +150,7 @@ class DatabaseManager:
             VALUES (1, '08:00:00', 15, CURRENT_TIMESTAMP);
         """)
 
-        # Insertar SOLO niveles educativos básicos (ELIMINAMOS grados y secciones pre-cargados)
+        # 1. Insertar niveles educativos básicos
         niveles = [
             (1, 'Inicial', 'Educación Inicial'),
             (2, 'Primaria', 'Educación Primaria'),
@@ -158,6 +158,21 @@ class DatabaseManager:
         ]
         cursor.executemany("INSERT OR IGNORE INTO niveles (id, nombre, descripcion) VALUES (?, ?, ?)", niveles)
         
+        # 2. Insertar GRADOS ÚNICOS ACTIVOS
+        grados_unicos = [
+            # nivel_id, nombre, numero, activo
+            (1, 2, 'Primaria Única', 1, 1),    # ✅ ACTIVO
+            (2, 3, 'Secundaria Única', 1, 1)   # ✅ ACTIVO
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO grados (id, nivel_id, nombre, numero, activo) VALUES (?, ?, ?, ?, ?)", grados_unicos)
+        
+        # 3. Insertar SECCIONES ÚNICAS ACTIVAS
+        secciones_unicas = [
+            # id, grado_id, nombre, letra, capacidad, activo
+            (1, 1, 'Sección Única Primaria', 'U', 30, 1),    # ✅ ACTIVO
+            (2, 2, 'Sección Única Secundaria', 'U', 30, 1)   # ✅ ACTIVO
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO secciones (id, grado_id, nombre, letra, capacidad, activo) VALUES (?, ?, ?, ?, ?, ?)", secciones_unicas)        
         conn.commit()
         conn.close()
 
@@ -247,15 +262,15 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def actualizar_seccion(self, seccion_id, grado_id, nombre, letra, capacidad):
+    def actualizar_seccion(self, seccion_id, grado_id, nombre, letra, capacidad, activo):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute("""
                 UPDATE secciones 
-                SET grado_id=?, nombre=?, letra=?, capacidad=?
+                SET grado_id=?, nombre=?, letra=?, capacidad=?, activo=?
                 WHERE id=?
-            """, (grado_id, nombre, letra, capacidad, seccion_id))
+            """, (grado_id, nombre, letra, capacidad, activo, seccion_id))
             conn.commit()
             return True
         except Exception as e:
@@ -263,6 +278,7 @@ class DatabaseManager:
             return False
         finally:
             conn.close()
+
 
     def desactivar_seccion(self, seccion_id):
         conn = self._get_connection()

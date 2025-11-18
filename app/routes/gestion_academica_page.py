@@ -162,16 +162,23 @@ def registrar_seccion(service):
 def editar_seccion(service):
     st.subheader("✏️ Editar Sección")
     
-    secciones = service.obtener_secciones_activas()
+    secciones = service.obtener_secciones() 
+    
     if not secciones:
-        st.info("📝 No hay secciones activas para editar.")
+        st.info("📝 No hay secciones registradas.")
         return
         
-    # Obtener grados activos
+    # Obtener grados activos (solo para selección)
     grados = service.obtener_grados_activos()
-    opciones_grados = [(g[0], f"{g[3]} - {g[1]}") for g in grados]
+    opciones_grados = [(g[0], f"{g[3]} - {g[1]}") for g in grados]  # [id, "Primaria - Primaria Única"]
     
-    opciones_secciones = [("", "Seleccionar sección...")] + [(s[0], f"{s[1]} - {s[3]}") for s in secciones]
+    # Mostrar secciones activas e inactivas
+    opciones_secciones = [("", "Seleccionar sección...")] 
+    for s in secciones:
+        # s[0]=id, s[1]=nombre, s[2]=letra, s[3]=grado_nombre, s[4]=nivel_nombre, s[5]=capacidad, s[6]=activo
+        estado = " (❌ Inactiva)" if not s[6] else ""  # s[6] = activo
+        opciones_secciones.append((s[0], f"{s[1]} - {s[3]}{estado}"))
+    
     seleccionada = st.selectbox("Seleccionar Sección a Editar", opciones_secciones, format_func=lambda x: x[1])
     
     if seleccionada and seleccionada[0]:
@@ -180,7 +187,7 @@ def editar_seccion(service):
         
         if datos_seccion:
             # Encontrar el índice del grado actual
-            grado_actual_id = datos_seccion[3]  # grado_id está en índice 3
+            grado_actual_id = datos_seccion[1]  # grado_id
             grado_actual_index = 0
             for i, (grado_id, _) in enumerate(opciones_grados):
                 if grado_id == grado_actual_id:
@@ -193,14 +200,14 @@ def editar_seccion(service):
                 with col1:
                     nombre = st.text_input(
                         "Nombre de la Sección*",
-                        value=datos_seccion[1],
-                        help="Nombre completo de la sección"
+                        value=datos_seccion[2],  # nombre en índice 2
+                        help="Ej: Sección Única Primaria"
                     )
                     letra = st.text_input(
                         "Letra*",
-                        value=datos_seccion[2],
+                        value=datos_seccion[3],  # letra en índice 3
                         max_chars=1,
-                        help="Letra que identifica la sección"
+                        help="Letra identificadora (U = Única)"
                     )
                     
                 with col2:
@@ -208,7 +215,7 @@ def editar_seccion(service):
                         "Capacidad",
                         min_value=1,
                         max_value=50,
-                        value=datos_seccion[5],
+                        value=datos_seccion[5],  # capacidad en índice 5
                         help="Número máximo de estudiantes"
                     )
                     grado_seleccionado = st.selectbox(
@@ -218,6 +225,11 @@ def editar_seccion(service):
                         format_func=lambda x: x[1],
                         help="Seleccione el grado al que pertenece la sección"
                     )
+                    activo = st.checkbox(
+                        "Sección Activa", 
+                        value=bool(datos_seccion[6]),  # activo en índice 6
+                        help="Desmarcar para desactivar la sección"
+                    )
                 
                 st.markdown("**\\* Campos obligatorios**")
                 
@@ -226,15 +238,17 @@ def editar_seccion(service):
                         st.error("❌ Por favor complete todos los campos obligatorios")
                     else:
                         try:
-                            if service.actualizar_seccion(seccion_id, grado_seleccionado[0], nombre, letra, capacidad):
-                                st.success("✅ Sección actualizada correctamente")
+                            # Actualizar sección con el estado activo
+                            if service.actualizar_seccion(seccion_id, grado_seleccionado[0], nombre, letra, capacidad, 1 if activo else 0):
+                                estado_msg = "activada" if activo else "desactivada"
+                                st.success(f"✅ Sección {estado_msg} y actualizada correctamente")
                                 st.rerun()
                             else:
                                 st.error("❌ Error al actualizar la sección")
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
-
 # ========== GRADOS ==========
+
 def gestion_grados(service):
     st.subheader("🎓 Gestión de Grados")
     
@@ -253,9 +267,9 @@ def mostrar_lista_grados(service):
     grados = service.obtener_grados()
     
     if grados:
-        df = pd.DataFrame(grados, columns=['ID', 'Nivel', 'Nombre', 'Número', 'Activo'])
+        df = pd.DataFrame(grados, columns=['ID', 'Nivel', 'Número', 'Nombre', 'Activo'])
         # Ocultar la columna ID
-        df_display = df[['Nivel', 'Nombre', 'Número', 'Activo']]
+        df_display = df[['Nivel', 'Nombre', 'Activo']]
         df_display['Activo'] = df_display['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
         
         st.dataframe(df_display, use_container_width=True, height=400)
@@ -326,16 +340,23 @@ def registrar_grado(service):
 def editar_grado(service):
     st.subheader("✏️ Editar Grado")
     
-    grados = service.obtener_grados_activos()
+    grados = service.obtener_grados()  # Este ya devuelve activos e inactivos
+    
     if not grados:
-        st.info("📝 No hay grados activos para editar.")
+        st.info("📝 No hay grados registrados.")
         return
         
     # Obtener niveles
     niveles = service.obtener_niveles()
     opciones_niveles = [(n[0], f"{n[1]}") for n in niveles]
     
-    opciones_grados = [("", "Seleccionar grado...")] + [(g[0], f"{g[1]} - {g[2]}") for g in grados]
+    # Mostrar grados activos e inactivos, marcando los inactivos
+    opciones_grados = [("", "Seleccionar grado...")] 
+    for g in grados:
+        # g[0]=id, g[1]=nombre, g[2]=numero, g[3]=nivel_nombre, g[4]=activo
+        estado = " (❌ Inactivo)" if not g[4] else ""  # g[4] = activo
+        opciones_grados.append((g[0], f"{g[1]} - {g[3]}{estado}"))
+    
     seleccionado = st.selectbox("Seleccionar Grado a Editar", opciones_grados, format_func=lambda x: x[1])
     
     if seleccionado and seleccionado[0]:
@@ -357,15 +378,15 @@ def editar_grado(service):
                 with col1:
                     nombre = st.text_input(
                         "Nombre del Grado*",
-                        value=datos_grado[2],
-                        help="Nombre completo del grado"
+                        value=datos_grado[2],  # nombre en índice 2
+                        help="Ej: Primaria Única, Secundaria Única"
                     )
                     numero = st.number_input(
                         "Número de Orden*",
                         min_value=1,
                         max_value=12,
-                        value=datos_grado[3],
-                        help="Número que indica el orden del grado"
+                        value=datos_grado[3],  # numero en índice 3
+                        help="1 = Primero, 2 = Segundo, etc. Para ordenamiento interno"
                     )
                     
                 with col2:
@@ -377,12 +398,13 @@ def editar_grado(service):
                         help="Seleccione el nivel educativo"
                     )
                     activo = st.checkbox(
-                        "Grado Activo",
-                        value=bool(datos_grado[4]),
-                        help="Desmarcar para desactivar el grado"
+                        " Grado Activo",
+                        value=bool(datos_grado[4]),  # activo en índice 4
+                        help="Desmarcar para desactivar el grado (no aparecerá en listas)"
                     )
                 
                 st.markdown("**\\* Campos obligatorios**")
+                st.info("💡 **Número de Orden**: Usado para ordenar grados. 1 = Primero, 2 = Segundo, etc.")
                 
                 if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
                     if not nombre:
@@ -390,7 +412,8 @@ def editar_grado(service):
                     else:
                         try:
                             if service.actualizar_grado(grado_id, nivel_seleccionado[0], nombre, numero, 1 if activo else 0):
-                                st.success("✅ Grado actualizado correctamente")
+                                estado_msg = "activado" if activo else "desactivado"
+                                st.success(f"✅ Grado {estado_msg} y actualizado correctamente")
                                 st.rerun()
                             else:
                                 st.error("❌ Error al actualizar el grado")

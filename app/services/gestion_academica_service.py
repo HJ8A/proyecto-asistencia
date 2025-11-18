@@ -12,8 +12,8 @@ class GestionAcademicaService:
     def agregar_seccion(self, grado_id, nombre, letra, capacidad=30):
         return self.db.agregar_seccion(grado_id, nombre, letra, capacidad)
 
-    def actualizar_seccion(self, seccion_id, grado_id, nombre, letra, capacidad):
-        return self.db.actualizar_seccion(seccion_id, grado_id, nombre, letra, capacidad)
+    def actualizar_seccion(self, seccion_id, grado_id, nombre, letra, capacidad, activo):
+        return self.db.actualizar_seccion(seccion_id, grado_id, nombre, letra, capacidad, activo)
 
     def desactivar_seccion(self, seccion_id):
         return self.db.desactivar_seccion(seccion_id)
