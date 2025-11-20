@@ -6,7 +6,7 @@ from datetime import datetime
 from app.utils.camara_utils import CamaraManager
 
 def gestion_estudiantes(service):
-    st.header("👥 Estudiantes")
+    st.header("👥 Gestión de Estudiantes")
     
     tab1, tab2, tab3, tab4, tab5, tab6= st.tabs([
         "📋 Lista de Estudiantes", 
@@ -119,11 +119,12 @@ def registrar_nuevo_estudiante(service):
                 max_chars=8,
                 key="dni_input"
             )
-            genero = st.selectbox(
-                "Género*",
-                options=["", "M", "F"],
-                format_func=lambda x: "Seleccionar..." if x == "" else "Masculino" if x == "M" else "Femenino",
-                help="Género del estudiante"
+            fecha_nacimiento = st.date_input(
+                "Fecha de Nacimiento*",
+                min_value=datetime(1990, 1, 1).date(),
+                max_value=datetime.now().date(),
+                value=datetime(2005, 1, 1).date(),
+                help="Fecha de nacimiento del estudiante"
             )
             
         with col2:
@@ -133,12 +134,11 @@ def registrar_nuevo_estudiante(service):
                 help="Apellido del estudiante (obligatorio)",
                 key="apellido_input"
             )
-            fecha_nacimiento = st.date_input(
-                "Fecha de Nacimiento*",
-                min_value=datetime(1990, 1, 1).date(),
-                max_value=datetime.now().date(),
-                value=datetime(2005, 1, 1).date(),
-                help="Fecha de nacimiento del estudiante"
+            genero = st.selectbox(
+                "Género*",
+                options=["", "M", "F"],
+                format_func=lambda x: "Seleccionar..." if x == "" else "Masculino" if x == "M" else "Femenino",
+                help="Género del estudiante"
             )
             # Selector de sección
             seccion_seleccionada = st.selectbox(
@@ -167,6 +167,7 @@ def registrar_nuevo_estudiante(service):
             turno = st.selectbox(
                 "Turno",
                 options=["", "mañana", "tarde", "noche"],
+                index=1,
                 format_func=lambda x: "Seleccionar..." if x == "" else x.capitalize(),
                 help="Turno del estudiante (opcional)"
             )
@@ -192,6 +193,7 @@ def registrar_nuevo_estudiante(service):
                 key="año_escolar_input"
             )
         
+        # Este campo queda fuera de las columnas como solicitaste
         nombre_contacto_emergencia = st.text_input(
             "Contacto de Emergencia", 
             placeholder="María Pérez",
@@ -295,9 +297,7 @@ def editar_estudiante(service):
                     seccion_actual_index = i
                     break
             
-            with st.form("editar_estudiante"):
-                st.markdown('<div class="form-title">📝 Editar Información del Estudiante</div>', unsafe_allow_html=True)
-                
+            with st.form("editar_estudiante"):                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -322,18 +322,6 @@ def editar_estudiante(service):
                         max_value=datetime.now().date(),
                         help="Fecha de nacimiento del estudiante"
                     )
-                    email = st.text_input(
-                        "Email", 
-                        value=datos[7] or "",
-                        placeholder="juan@example.com",
-                        help="Email del estudiante"
-                    )
-                    telefono = st.text_input(
-                        "Teléfono", 
-                        value=datos[6] or "",
-                        placeholder="987654321",
-                        help="Teléfono del estudiante"
-                    )
                     
                 with col2:
                     apellido = st.text_input(
@@ -349,28 +337,31 @@ def editar_estudiante(service):
                         format_func=lambda x: "Masculino" if x == "M" else "Femenino",
                         help="Género del estudiante"
                     )
-                    direccion = st.text_input(
-                        "Dirección", 
-                        value=datos[8] or "",
-                        placeholder="Av. Principal 123",
-                        help="Dirección del estudiante"
-                    )
-                    nombre_contacto_emergencia = st.text_input(
-                        "Contacto de Emergencia", 
-                        value=datos[9] or "",
-                        placeholder="María Pérez",
-                        help="Nombre del contacto de emergencia"
-                    )
-                    telefono_contacto_emergencia = st.text_input(
-                        "Teléfono de Emergencia", 
-                        value=datos[10] or "",
-                        placeholder="987654321",
-                        help="Teléfono del contacto de emergencia"
+                    # Selector de sección
+                    seccion_seleccionada = st.selectbox(
+                        "Sección *",
+                        options=opciones_secciones,
+                        index=seccion_actual_index,
+                        format_func=lambda x: x[1],
+                        help="Seleccione la sección del estudiante",
+                        key="editar_seccion"
                     )
                 
                 # Campos adicionales
                 col3, col4 = st.columns(2)
                 with col3:
+                    email = st.text_input(
+                        "Email", 
+                        value=datos[7] or "",
+                        placeholder="juan@example.com",
+                        help="Email del estudiante"
+                    )
+                    telefono = st.text_input(
+                        "Teléfono", 
+                        value=datos[6] or "",
+                        placeholder="987654321",
+                        help="Teléfono del estudiante"
+                    )
                     turno = st.selectbox(
                         "Turno",
                         options=["mañana", "tarde", "noche"],
@@ -379,6 +370,18 @@ def editar_estudiante(service):
                         help="Turno del estudiante"
                     )
                 with col4:
+                    direccion = st.text_input(
+                        "Dirección", 
+                        value=datos[8] or "",
+                        placeholder="Av. Principal 123",
+                        help="Dirección del estudiante"
+                    )
+                    telefono_contacto_emergencia = st.text_input(
+                        "Teléfono de Emergencia", 
+                        value=datos[10] or "",
+                        placeholder="987654321",
+                        help="Teléfono del contacto de emergencia"
+                    )
                     año_escolar = st.number_input(
                         "Año Escolar", 
                         min_value=1, 
@@ -387,14 +390,12 @@ def editar_estudiante(service):
                         help="Año escolar del estudiante"
                     )
                 
-                # Selector de sección
-                seccion_seleccionada = st.selectbox(
-                    "Sección *",
-                    options=opciones_secciones,
-                    index=seccion_actual_index,
-                    format_func=lambda x: x[1],
-                    help="Seleccione la sección del estudiante",
-                    key="editar_seccion"
+                # Este campo queda fuera de las columnas
+                nombre_contacto_emergencia = st.text_input(
+                    "Contacto de Emergencia", 
+                    value=datos[9] or "",
+                    placeholder="María Pérez",
+                    help="Nombre del contacto de emergencia"
                 )
                 
                 # Obtener el ID de la sección seleccionada

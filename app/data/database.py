@@ -62,7 +62,7 @@ class DatabaseManager:
                 apellido TEXT NOT NULL,
                 fecha_nacimiento DATE NOT NULL,  -- CAMBIO: edad por fecha_nacimiento
                 genero TEXT CHECK(genero IN ('M','F')),  -- NUEVO: género
-                telefono TEXT,  -- NUEVO: teléfono
+                telefono TEXT,
                 email TEXT,  -- NUEVO: email
                 direccion TEXT,  -- NUEVO: dirección
                 nombre_contacto_emergencia TEXT,  -- NUEVO: contacto emergencia
@@ -402,7 +402,7 @@ class DatabaseManager:
             return None
         finally:
             conn.close()
-
+   
     def obtener_estudiantes(self):
         conn = self._get_connection()
         cursor = conn.cursor()

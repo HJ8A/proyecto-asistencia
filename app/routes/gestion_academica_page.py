@@ -248,20 +248,170 @@ def editar_seccion(service):
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
 # ========== GRADOS ==========
-
 def gestion_grados(service):
     st.subheader("🎓 Gestión de Grados")
     
-    tab1, tab2, tab3 = st.tabs(["📋 Lista de Grados", "➕ Registrar Grado", "✏️ Editar Grado"])
+    # Mostrar lista de grados
+    grados = service.obtener_grados()
     
-    with tab1:
-        mostrar_lista_grados(service)
+    if grados:
+        df = pd.DataFrame(grados, columns=['ID', 'Nivel', 'Número', 'Nombre', 'Activo'])
+        # Ocultar la columna ID
+        df_display = df[['Nivel', 'Nombre', 'Activo']]
+        df_display['Activo'] = df_display['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
+        
+        # Calcular altura dinámica basada en el número de filas
+        altura_tabla = min(120 + len(df) * 35, 400)
+        st.dataframe(df_display, use_container_width=True, height=altura_tabla)
+        
+        st.metric("Total Grados", len(grados))
+    else:
+        st.info("📝 No hay grados registrados.")
     
-    with tab2:
+    # Formularios de registro y edición en la misma vista
+    col1, col2 = st.columns(2)
+    
+    with col1:
         registrar_grado(service)
     
-    with tab3:
+    with col2:
         editar_grado(service)
+
+def registrar_grado(service):
+    st.subheader("➕ Registrar Nuevo Grado")
+    
+    # Obtener niveles
+    niveles = service.obtener_niveles()
+    opciones_niveles = [("", "Seleccionar nivel...")] + [(n[0], f"{n[1]}") for n in niveles]
+    
+    with st.form("nuevo_grado", clear_on_submit=True):
+        nombre = st.text_input(
+            "Nombre del Grado*",
+            placeholder="Ej: 1ro Primaria",
+            help="Nombre completo del grado"
+        )
+        
+        nivel_seleccionado = st.selectbox(
+            "Nivel Educativo*",
+            options=opciones_niveles,  # Corregido: era opciones_secciones
+            format_func=lambda x: x[1],
+            help="Seleccione el nivel educativo"
+        )
+        
+        activo = st.checkbox(
+            "Grado Activo",
+            value=True,
+            help="Marcar si el grado está activo"
+        )
+        
+        # Obtener el ID del nivel seleccionado
+        nivel_id = nivel_seleccionado[0] if nivel_seleccionado[0] != "" else None
+        
+        st.markdown("**\\* Campos obligatorios**")
+        
+        submitted = st.form_submit_button(
+            "📝 Registrar Grado", 
+            width='stretch',  # Cambiado por use_container_width=True
+            type="primary"
+        )
+        
+        if submitted:
+            if not nombre or not nivel_id:
+                st.error("❌ Por favor complete todos los campos obligatorios")
+            else:
+                try:
+                    # Calcular automáticamente el número de orden
+                    grados_existentes = service.obtener_grados_por_nivel(nivel_id)
+                    if grados_existentes:
+                        # Encontrar el máximo número actual y sumar 1
+                        max_numero = max(grado[2] for grado in grados_existentes)  # índice 2 es el número
+                        numero = max_numero + 1
+                    else:
+                        numero = 1
+                    
+                    grado_id = service.agregar_grado(nivel_id, nombre, numero, 1 if activo else 0)
+                    if grado_id:
+                        st.success(f"✅ Grado **{nombre}** registrado correctamente")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al registrar el grado")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+
+def editar_grado(service):
+    st.subheader("✏️ Editar Grado")
+    
+    grados = service.obtener_grados()  # Este ya devuelve activos e inactivos
+    
+    if not grados:
+        st.info("📝 No hay grados registrados.")
+        return
+        
+    # Obtener niveles
+    niveles = service.obtener_niveles()
+    opciones_niveles = [(n[0], f"{n[1]}") for n in niveles]
+    
+    # Mostrar grados activos e inactivos, marcando los inactivos
+    opciones_grados = [("", "Seleccionar grado...")] 
+    for g in grados:
+        # g[0]=id, g[1]=nombre, g[2]=numero, g[3]=nivel_nombre, g[4]=activo
+        estado = " (❌ Inactivo)" if not g[4] else ""  # g[4] = activo
+        opciones_grados.append((g[0], f"{g[1]} - {g[3]}{estado}"))
+    
+    seleccionado = st.selectbox("Seleccionar Grado a Editar", opciones_grados, format_func=lambda x: x[1])
+    
+    if seleccionado and seleccionado[0]:
+        grado_id = seleccionado[0]
+        datos_grado = service.obtener_grado_por_id(grado_id)
+        
+        if datos_grado:
+            # Encontrar el índice del nivel actual
+            nivel_actual_id = datos_grado[1]  # nivel_id está en índice 1
+            nivel_actual_index = 0
+            for i, (nivel_id, _) in enumerate(opciones_niveles):
+                if nivel_id == nivel_actual_id:
+                    nivel_actual_index = i
+                    break
+            
+            with st.form("editar_grado"):
+                nombre = st.text_input(
+                    "Nombre del Grado*",
+                    value=datos_grado[2],  # nombre en índice 2
+                    help="Ej: Primaria Única, Secundaria Única"
+                )
+                
+                nivel_seleccionado = st.selectbox(
+                    "Nivel Educativo*",
+                    options=opciones_niveles,
+                    index=nivel_actual_index,
+                    format_func=lambda x: x[1],
+                    help="Seleccione el nivel educativo"
+                )
+                
+                activo = st.checkbox(
+                    "Grado Activo",
+                    value=bool(datos_grado[4]),  # activo en índice 4
+                    help="Desmarcar para desactivar el grado (no aparecerá en listas)"
+                )
+                
+                st.markdown("**\\* Campos obligatorios**")
+                
+                if st.form_submit_button("💾 Guardar Cambios", width='stretch', type="primary"):
+                    if not nombre:
+                        st.error("❌ Por favor complete todos los campos obligatorios")
+                    else:
+                        try:
+                            # Mantener el número de orden existente (no mostrarlo al usuario)
+                            numero_actual = datos_grado[3]  # numero en índice 3
+                            
+                            if service.actualizar_grado(grado_id, nivel_seleccionado[0], nombre, numero_actual, 1 if activo else 0):
+                                estado_msg = "activado" if activo else "desactivado"
+                                st.success(f"✅ Grado {estado_msg} y actualizado correctamente")
+                                st.rerun()
+                            else:
+                                st.error("❌ Error al actualizar el grado")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
 
 def mostrar_lista_grados(service):
     grados = service.obtener_grados()
@@ -421,6 +571,7 @@ def editar_grado(service):
                             st.error(f"❌ Error: {str(e)}")
 
 # ========== NIVELES ==========
+# ========== NIVELES ==========
 def gestion_niveles(service):
     st.subheader("🏛️ Gestión de Niveles Educativos")
     niveles = service.obtener_niveles()
@@ -429,7 +580,17 @@ def gestion_niveles(service):
         df = pd.DataFrame(niveles, columns=['ID', 'Nombre', 'Descripción'])
         df_display = df[['Nombre', 'Descripción']]
 
-        st.dataframe(df_display, use_container_width=True, height=400)
+        # Calcular altura dinámica basada en el número de filas
+        # Altura base por fila (aproximadamente 35px por fila + 60px para encabezados)
+        altura_fila = 35
+        altura_encabezados = 60
+        altura_total = len(df) * altura_fila + altura_encabezados
+        # Establecer una altura mínima y máxima razonable
+        altura_minima = 120
+        altura_maxima = 600
+        altura_final = max(altura_minima, min(altura_total, altura_maxima))
+        
+        st.dataframe(df_display, use_container_width=True, height=altura_final)
         
         st.metric("Total Niveles", len(niveles))
         
@@ -456,7 +617,6 @@ def gestion_niveles(service):
                         st.error("❌ Error al actualizar el nivel")
     else:
         st.info("📝 No hay niveles registrados.")
-
 # ========== PROFESORES ==========
 def gestion_profesores(service):
     st.subheader("👨‍🏫 Gestión de Profesores")
