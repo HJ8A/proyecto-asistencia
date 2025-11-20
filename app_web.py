@@ -36,10 +36,10 @@ def main():
         "Selecciona una opción:",
         [
             "📊 Dashboard",
-            "👥 Gestión de Estudiantes",
-            "🏫 Gestión Académica",
+            "👥 Estudiantes",
+            "🏫 Académico",
             "📝 Registrar Asistencias",
-            "📈 Reportes y Estadísticas",
+            "📈 Reportes-Estadísticas",
             "⚙️ Configuración"
         ]
     )
@@ -48,16 +48,16 @@ def main():
     if opcion == "📊 Dashboard":
         dashboard_page.mostrar_dashboard(db)
 
-    elif opcion == "👥 Gestión de Estudiantes":
+    elif opcion == "👥 Estudiantes":
         estudiantes_page.gestion_estudiantes(estudiantes_service)
 
     elif opcion == "📝 Registrar Asistencias":
         asistencias_page.registrar_asistencias(asistencias_service , db)
 
-    elif opcion == "🏫 Gestión Académica":  # Nueva ruta
+    elif opcion == "🏫 Académico":  # Nueva ruta
         gestion_academica_page.gestion_academica(gestion_academica_service)
 
-    elif opcion == "📈 Reportes y Estadísticas":
+    elif opcion == "📈 Reportes-Estadísticas":
         reportes_page.mostrar_reportes(db)
 
     elif opcion == "⚙️ Configuración":

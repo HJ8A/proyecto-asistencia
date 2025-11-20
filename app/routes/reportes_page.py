@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 def mostrar_reportes(db):
-    st.header("📈 Reportes y Estadísticas")
+    st.header("📈 Reportes-Estadisticas")
 
     tab1, tab2, tab3 = st.tabs(["📊 Generales", "📅 Por Período", "👤 Por Estudiante"])
     with tab1:

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 def gestion_academica(service):
-    st.header("🏫 Gestión Académica")
+    st.header("🏫 Académica")
     
     tab1, tab2, tab3, tab4 = st.tabs([
         "👨‍🏫 Profesores", 
