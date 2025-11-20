@@ -26,19 +26,7 @@ def gestion_academica(service):
 def gestion_secciones(service):
     st.subheader("📚 Gestión de Secciones")
     
-    # Pestañas para diferentes operaciones
-    tab1, tab2, tab3 = st.tabs(["📋 Lista de Secciones", "➕ Registrar Sección", "✏️ Editar Sección"])
-    
-    with tab1:
-        mostrar_lista_secciones(service)
-    
-    with tab2:
-        registrar_seccion(service)
-    
-    with tab3:
-        editar_seccion(service)
-
-def mostrar_lista_secciones(service):
+    # Mostrar lista de secciones
     secciones = service.obtener_secciones()
     
     if secciones:
@@ -46,9 +34,10 @@ def mostrar_lista_secciones(service):
         df['Activo'] = df['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
 
         df_display = df[['Nombre', 'Letra', 'Grado', 'Nivel', 'Capacidad', 'Activo']]
-        df_display['Activo'] = df_display['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
 
-        st.dataframe(df_display, use_container_width=True, height=400)
+        # Calcular altura dinámica basada en el número de filas
+        altura_tabla = min(120 + len(df) * 35, 400)
+        st.dataframe(df_display, use_container_width=True, height=altura_tabla)
         
         col1, col2 = st.columns(2)
         with col1:
@@ -56,41 +45,17 @@ def mostrar_lista_secciones(service):
         with col2:
             activas = sum(1 for s in secciones if s[6] == 1)
             st.metric("Secciones Activas", activas)
-            
-        # Acciones rápidas
-        st.subheader("🚀 Acciones Rápidas")
-        col1, col2 = st.columns(2)
-        with col1:
-            seccion_id_desactivar = st.selectbox(
-                "Seleccionar sección para desactivar:",
-                options=[s[0] for s in secciones if s[6] == 1],
-                format_func=lambda x: f"ID {x} - {next(s[1] for s in secciones if s[0] == x)}",
-                key="desactivar_seccion_select"
-            )
-            if seccion_id_desactivar and st.button("🚫 Desactivar Sección", key="btn_desactivar_seccion"):
-                if service.desactivar_seccion(seccion_id_desactivar):
-                    st.success("✅ Sección desactivada correctamente")
-                    st.rerun()
-                else:
-                    st.error("❌ Error al desactivar la sección")
-                    
-        with col2:
-            secciones_inactivas = [s for s in secciones if s[6] == 0]
-            if secciones_inactivas:
-                seccion_id_reactivar = st.selectbox(
-                    "Seleccionar sección para reactivar:",
-                    options=[s[0] for s in secciones_inactivas],
-                    format_func=lambda x: f"ID {x} - {next(s[1] for s in secciones_inactivas if s[0] == x)}",
-                    key="reactivar_seccion_select"
-                )
-                if seccion_id_reactivar and st.button("🔄 Reactivar Sección", key="btn_reactivar_seccion"):
-                    if service.reactivar_seccion(seccion_id_reactivar):
-                        st.success("✅ Sección reactivada correctamente")
-                        st.rerun()
-                    else:
-                        st.error("❌ Error al reactivar la sección")
     else:
         st.info("📝 No hay secciones registradas.")
+    
+    # Formularios de registro y edición en la misma vista
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        registrar_seccion(service)
+    
+    with col2:
+        editar_seccion(service)
 
 def registrar_seccion(service):
     st.subheader("➕ Registrar Nueva Sección")
@@ -134,6 +99,12 @@ def registrar_seccion(service):
                 help="Seleccione el grado al que pertenece la sección"
             )
         
+        activo = st.checkbox(
+            "Sección Activa",
+            value=True,
+            help="Marcar si la sección está activa"
+        )
+        
         # Obtener el ID del grado seleccionado
         grado_id = grado_seleccionado[0] if grado_seleccionado[0] != "" else None
         
@@ -141,7 +112,7 @@ def registrar_seccion(service):
         
         submitted = st.form_submit_button(
             "📝 Registrar Sección", 
-            use_container_width=True,
+            width='stretch',
             type="primary"
         )
         
@@ -150,7 +121,7 @@ def registrar_seccion(service):
                 st.error("❌ Por favor complete todos los campos obligatorios")
             else:
                 try:
-                    seccion_id = service.agregar_seccion(grado_id, nombre, letra, capacidad)
+                    seccion_id = service.agregar_seccion(grado_id, nombre, letra, capacidad, 1 if activo else 0)
                     if seccion_id:
                         st.success(f"✅ Sección **{nombre}** registrada correctamente")
                         st.rerun()
@@ -159,6 +130,95 @@ def registrar_seccion(service):
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
+def editar_seccion(service):
+    st.subheader("✏️ Editar Sección")
+    
+    secciones = service.obtener_secciones() 
+    
+    if not secciones:
+        st.info("📝 No hay secciones registradas.")
+        return
+        
+    # Obtener grados activos (solo para selección)
+    grados = service.obtener_grados_activos()
+    opciones_grados = [(g[0], f"{g[3]} - {g[1]}") for g in grados]  # [id, "Primaria - Primaria Única"]
+    
+    # Mostrar secciones activas e inactivas
+    opciones_secciones = [("", "Seleccionar sección...")] 
+    for s in secciones:
+        # s[0]=id, s[1]=nombre, s[2]=letra, s[3]=grado_nombre, s[4]=nivel_nombre, s[5]=capacidad, s[6]=activo
+        estado = " (❌ Inactiva)" if not s[6] else ""  # s[6] = activo
+        opciones_secciones.append((s[0], f"{s[1]} - {s[3]}{estado}"))
+    
+    seleccionada = st.selectbox("Seleccionar Sección a Editar", opciones_secciones, format_func=lambda x: x[1])
+    
+    if seleccionada and seleccionada[0]:
+        seccion_id = seleccionada[0]
+        datos_seccion = service.obtener_seccion_por_id(seccion_id)
+        
+        if datos_seccion:
+            # Encontrar el índice del grado actual
+            grado_actual_id = datos_seccion[1]  # grado_id
+            grado_actual_index = 0
+            for i, (grado_id, _) in enumerate(opciones_grados):
+                if grado_id == grado_actual_id:
+                    grado_actual_index = i
+                    break
+            
+            with st.form("editar_seccion"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    nombre = st.text_input(
+                        "Nombre de la Sección*",
+                        value=datos_seccion[2],  # nombre en índice 2
+                        help="Ej: Sección Única Primaria"
+                    )
+                    letra = st.text_input(
+                        "Letra*",
+                        value=datos_seccion[3],  # letra en índice 3
+                        max_chars=1,
+                        help="Letra identificadora (U = Única)"
+                    )
+                    
+                with col2:
+                    capacidad = st.number_input(
+                        "Capacidad",
+                        min_value=1,
+                        max_value=50,
+                        value=datos_seccion[5],  # capacidad en índice 5
+                        help="Número máximo de estudiantes"
+                    )
+                    grado_seleccionado = st.selectbox(
+                        "Grado*",
+                        options=opciones_grados,
+                        index=grado_actual_index,
+                        format_func=lambda x: x[1],
+                        help="Seleccione el grado al que pertenece la sección"
+                    )
+                    activo = st.checkbox(
+                        "Sección Activa", 
+                        value=bool(datos_seccion[6]),  # activo en índice 6
+                        help="Desmarcar para desactivar la sección"
+                    )
+                
+                st.markdown("**\\* Campos obligatorios**")
+                
+                if st.form_submit_button("💾 Guardar Cambios", width='stretch', type="primary"):
+                    if not nombre or not letra:
+                        st.error("❌ Por favor complete todos los campos obligatorios")
+                    else:
+                        try:
+                            # Actualizar sección con el estado activo
+                            if service.actualizar_seccion(seccion_id, grado_seleccionado[0], nombre, letra, capacidad, 1 if activo else 0):
+                                estado_msg = "activada" if activo else "desactivada"
+                                st.success(f"✅ Sección {estado_msg} y actualizada correctamente")
+                                st.rerun()
+                            else:
+                                st.error("❌ Error al actualizar la sección")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                            
 def editar_seccion(service):
     st.subheader("✏️ Editar Sección")
     
