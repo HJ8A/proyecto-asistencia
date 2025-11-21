@@ -9,8 +9,8 @@ class GestionAcademicaService:
     def obtener_seccion_por_id(self, seccion_id):
         return self.db.obtener_seccion_por_id(seccion_id)
 
-    def agregar_seccion(self, grado_id, nombre, letra, capacidad=30):
-        return self.db.agregar_seccion(grado_id, nombre, letra, capacidad)
+    def agregar_seccion(self, grado_id, nombre, letra, capacidad=30, activo=1):
+        return self.db.agregar_seccion(grado_id, nombre, letra, capacidad, activo)
 
     def actualizar_seccion(self, seccion_id, grado_id, nombre, letra, capacidad, activo):
         return self.db.actualizar_seccion(seccion_id, grado_id, nombre, letra, capacidad, activo)
