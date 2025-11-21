@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 def gestion_academica(service):
     st.header("🏫 Académica")
@@ -22,6 +23,9 @@ def gestion_academica(service):
 
     with tab4:
         gestion_niveles(service)
+
+    #with subtab5:
+    #   reactivar_profesor(service)
 
 # ========== SECCIONES ==========
 def gestion_secciones(service):
@@ -629,7 +633,7 @@ def gestion_profesores(service):
         "📋 Lista de Profesores", 
         "➕ Registrar Nuevo",
         "✏️ Editar Profesor",
-        "🚫 Desactivar Profesor"
+        "🔄 Estado Profesor"
     ])
 
     with subtab1:
@@ -642,29 +646,38 @@ def gestion_profesores(service):
         editar_profesor(service)
 
     with subtab4:
-        desactivar_profesor(service)
+        estado_profesor(service)
 
 def mostrar_lista_profesores(service):
     st.subheader("📊 Lista de Profesores")
     profesores = service.obtener_profesores()
     
     if profesores:
-        df = pd.DataFrame(profesores, columns=['ID', 'DNI', 'Nombre', 'Apellido', 'Email', 'Teléfono', 'Activo', 'Fecha Registro'])
+        df = pd.DataFrame(profesores, columns=[
+            'ID', 'DNI', 'Nombre', 'Apellido', 'Fecha_Nacimiento', 'Genero', 
+            'Email', 'Teléfono', 'Activo', 'Fecha_Registro'
+        ])
+        
+        # Convertir columnas
         df['Activo'] = df['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
-        df['Fecha Registro'] = pd.to_datetime(df['Fecha Registro']).dt.strftime('%d/%m/%Y')
+        df['Fecha_Registro'] = pd.to_datetime(df['Fecha_Registro']).dt.strftime('%d/%m/%Y')
         
-        df_display = df[['DNI', 'Nombre', 'Apellido', 'Email', 'Teléfono', 'Activo', 'Fecha Registro']]
-        df_display['Activo'] = df_display['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
-        df_display['Fecha Registro'] = pd.to_datetime(df_display['Fecha Registro']).dt.strftime('%d/%m/%Y')
+        # Mostrar solo las columnas que quieres ver
+        df_display = df[['DNI', 'Nombre', 'Apellido', 'Email', 'Teléfono', 'Activo', 'Fecha_Registro']]
 
-        st.dataframe(df_display, use_container_width=True, height=400)
+        # Calcular altura dinámica basada en el número de filas
+        altura_tabla = min(120 + len(df) * 35, 400)
+        st.dataframe(df_display, use_container_width=True, height=altura_tabla)
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Profesores", len(profesores))
         with col2:
-            activos = sum(1 for p in profesores if p[6] == 1)
+            activos = sum(1 for p in profesores if p[8] == 1)  # Activo está en índice 8
             st.metric("Profesores Activos", activos)
+        with col3:
+            inactivos = sum(1 for p in profesores if p[8] == 0)  # Activo está en índice 8
+            st.metric("Profesores Inactivos", inactivos)
     else:
         st.info("📝 No hay profesores registrados.")
 
@@ -695,6 +708,13 @@ def registrar_nuevo_profesor(service):
                 help="Nombre del profesor (obligatorio)",
                 key="profesor_nombre"
             )
+            fecha_nacimiento = st.date_input(
+                "Fecha de Nacimiento*",
+                min_value=datetime(1950, 1, 1).date(),
+                max_value=datetime.now().date(),
+                value=datetime(1980, 1, 1).date(),
+                help="Fecha de nacimiento del profesor"
+            )
             email = st.text_input(
                 "Email", 
                 placeholder="carlos@colegio.edu",
@@ -708,6 +728,12 @@ def registrar_nuevo_profesor(service):
                 placeholder="Rodríguez",
                 help="Apellido del profesor (obligatorio)",
                 key="profesor_apellido"
+            )
+            genero = st.selectbox(
+                "Género*",
+                options=["", "M", "F"],
+                format_func=lambda x: "Seleccionar..." if x == "" else "Masculino" if x == "M" else "Femenino",
+                help="Género del profesor"
             )
             telefono = st.text_input(
                 "Teléfono", 
@@ -723,20 +749,26 @@ def registrar_nuevo_profesor(service):
         
         submitted = st.form_submit_button(
             "📝 Registrar Profesor", 
-            use_container_width=True,
+            width='stretch',
             type="primary"
         )
         
         if submitted:
             errores = []
             
+            # Validar campos obligatorios
             if not dni:
                 errores.append("El DNI es obligatorio")
             if not nombre:
                 errores.append("El nombre es obligatorio")
             if not apellido:
                 errores.append("El apellido es obligatorio")
+            if not fecha_nacimiento:
+                errores.append("La fecha de nacimiento es obligatoria")
+            if not genero:
+                errores.append("El género es obligatorio")
             
+            # Validaciones del DNI
             if dni:
                 if not dni.isdigit():
                     errores.append("El DNI debe contener solo números")
@@ -754,7 +786,14 @@ def registrar_nuevo_profesor(service):
                     st.error(f"❌ {error}")
             else:
                 try:
-                    profesor_id = service.agregar_profesor(dni, nombre, apellido, email, telefono)
+                    # Convertir fecha_nacimiento a string para la base de datos
+                    fecha_nacimiento_str = fecha_nacimiento.strftime('%Y-%m-%d')
+                    
+                    profesor_id = service.agregar_profesor(
+                        dni, nombre, apellido, fecha_nacimiento_str, genero, 
+                        email if email else None, 
+                        telefono if telefono else None
+                    )
                     if profesor_id:
                         st.success(f"✅ Profesor **{nombre} {apellido}** registrado correctamente con ID: {profesor_id}")
                         st.rerun()
@@ -781,27 +820,41 @@ def editar_profesor(service):
         datos = service.obtener_profesor_por_id(profesor_id)
         
         if datos:
+            # DEBUG: Ver los datos reales
+            #st.write("🔍 Datos del profesor seleccionado:", datos)
+            
+            # Convertir fecha de nacimiento string a date
+            fecha_nacimiento_actual = datetime.strptime(datos[4], '%Y-%m-%d').date() if datos[4] else datetime(1980, 1, 1).date()
+            
             with st.form("editar_profesor"):
-                st.markdown('<div class="form-title">✏️ Editar Información del Profesor</div>', unsafe_allow_html=True)
+                #st.markdown('<div class="form-title">✏️ Editar Información del Profesor</div>', unsafe_allow_html=True)
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     dni = st.text_input(
                         "DNI *", 
-                        value=datos[1],
-                        placeholder="Ej: 12345678",
+                        value=datos[1],  # DNI en índice 1
+                        placeholder="Ej: 75424515",
+                        max_chars=8,
                         help="Documento Nacional de Identidad"
                     )
                     nombre = st.text_input(
                         "Nombre *", 
-                        value=datos[2],
+                        value=datos[2],  # Nombre en índice 2
                         placeholder="Ej: Carlos",
                         help="Nombre del profesor"
                     )
+                    fecha_nacimiento = st.date_input(
+                        "Fecha de Nacimiento *",
+                        value=fecha_nacimiento_actual,
+                        min_value=datetime(1950, 1, 1).date(),
+                        max_value=datetime.now().date(),
+                        help="Fecha de nacimiento del profesor"
+                    )
                     email = st.text_input(
                         "Email", 
-                        value=datos[4] or "",
+                        value=datos[6] or "",  # Email en índice 6
                         placeholder="Ej: carlos@colegio.edu",
                         help="Correo electrónico"
                     )
@@ -809,26 +862,36 @@ def editar_profesor(service):
                 with col2:
                     apellido = st.text_input(
                         "Apellido *", 
-                        value=datos[3],
+                        value=datos[3],  # Apellido en índice 3
                         placeholder="Ej: Rodríguez",
                         help="Apellido del profesor"
                     )
+                    genero = st.selectbox(
+                        "Género *",
+                        options=["M", "F"],
+                        index=0 if datos[5] == "M" else 1,  # Género en índice 5
+                        format_func=lambda x: "Masculino" if x == "M" else "Femenino",
+                        help="Género del profesor"
+                    )
                     telefono = st.text_input(
                         "Teléfono", 
-                        value=datos[5] or "",
+                        value=datos[7] or "",  # Teléfono en índice 7
                         placeholder="Ej: +51 987654321",
                         help="Número de teléfono"
                     )
                 
                 st.markdown("**\\* Campos obligatorios**")
                 
-                if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
-                    if dni and nombre and apellido:
+                submitted = st.form_submit_button("💾 Guardar Cambios", width='stretch', type="primary")
+                
+                if submitted:
+                    if dni and nombre and apellido and fecha_nacimiento and genero:
                         try:
                             if not dni.isdigit() or len(dni) != 8:
                                 st.error("❌ El DNI debe contener solo números y tener exactamente 8 dígitos")
                             else:
-                                if service.actualizar_profesor(profesor_id, dni, nombre, apellido, email, telefono):
+                                fecha_nacimiento_str = fecha_nacimiento.strftime('%Y-%m-%d')
+                                if service.actualizar_profesor(profesor_id, dni, nombre, apellido, fecha_nacimiento_str, genero, email, telefono):
                                     st.success("✅ Información del profesor actualizada correctamente")
                                     st.rerun()
                                 else:
@@ -838,6 +901,81 @@ def editar_profesor(service):
                     else:
                         st.error("❌ Por favor complete todos los campos obligatorios")
 
+def estado_profesor(service):
+    st.subheader("🔄 Estado del Profesor")
+    
+    # Sección para desactivar profesores activos
+    st.markdown("### 🚫 Desactivar Profesor")
+    st.warning("La desactivación oculta al profesor pero mantiene su historial.")
+    
+    profesores_activos = service.obtener_profesores_activos()
+    if profesores_activos:
+        opciones_activos = [f"ID: {p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in profesores_activos]
+        seleccionado_desactivar = st.selectbox(
+            "Seleccionar Profesor a Desactivar", 
+            opciones_activos, 
+            key="desactivar_profesor"
+        )
+        
+        if seleccionado_desactivar:
+            profesor_id = profesores_activos[opciones_activos.index(seleccionado_desactivar)][0]
+            profesor_nombre = f"{profesores_activos[opciones_activos.index(seleccionado_desactivar)][2]} {profesores_activos[opciones_activos.index(seleccionado_desactivar)][3]}"
+            
+            st.error(f"¿Estás seguro de que deseas desactivar a **{profesor_nombre}**?")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirmar Desactivación", key="btn_desactivar", width='stretch', type="primary"):
+                    if service.desactivar_profesor(profesor_id):
+                        st.success(f"✅ Profesor **{profesor_nombre}** desactivado correctamente")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al desactivar el profesor")
+            
+            with col2:
+                if st.button("❌ Cancelar", key="btn_cancelar_desactivar", width='stretch'):
+                    st.info("Operación cancelada")
+    else:
+        st.info("📝 No hay profesores activos para desactivar.")
+    
+    st.markdown("---")
+    
+    # Sección para reactivar profesores inactivos
+    st.markdown("### ✅ Reactivar Profesor")
+    st.success("Reactiva profesores que han sido desactivados previamente.")
+    
+    profesores_inactivos = service.obtener_profesores_inactivos()
+    if profesores_inactivos:
+        opciones_inactivos = [f"ID: {p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in profesores_inactivos]
+        seleccionado_reactivar = st.selectbox(
+            "Seleccionar Profesor a Reactivar", 
+            opciones_inactivos, 
+            key="reactivar_profesor"
+        )
+        
+        if seleccionado_reactivar:
+            profesor_id = profesores_inactivos[opciones_inactivos.index(seleccionado_reactivar)][0]
+            profesor_nombre = f"{profesores_inactivos[opciones_inactivos.index(seleccionado_reactivar)][2]} {profesores_inactivos[opciones_inactivos.index(seleccionado_reactivar)][3]}"
+            
+            st.info(f"¿Estás seguro de que deseas reactivar a **{profesor_nombre}**?")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirmar Reactivación", key="btn_reactivar", width='stretch', type="primary"):
+                    if service.reactivar_profesor(profesor_id):
+                        st.success(f"✅ Profesor **{profesor_nombre}** reactivado correctamente")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al reactivar el profesor")
+            
+            with col2:
+                if st.button("❌ Cancelar", key="btn_cancelar_reactivar", width='stretch'):
+                    st.info("Operación cancelada")
+    else:
+        st.info("📝 No hay profesores inactivos para reactivar.")
+
+
+'''
 def desactivar_profesor(service):
     st.subheader("🚫 Desactivar Profesor")
     st.warning("⚠️ La desactivación oculta al profesor pero mantiene su historial.")
@@ -858,7 +996,7 @@ def desactivar_profesor(service):
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Confirmar Desactivación", use_container_width=True, type="primary"):
+            if st.button("✅ Confirmar Desactivación", width='stretch', type="primary"):
                 if service.desactivar_profesor(profesor_id):
                     st.success(f"✅ Profesor **{profesor_nombre}** desactivado correctamente")
                     st.rerun()
@@ -866,56 +1004,38 @@ def desactivar_profesor(service):
                     st.error("❌ Error al desactivar el profesor")
         
         with col2:
-            if st.button("❌ Cancelar", use_container_width=True):
+            if st.button("❌ Cancelar", width='stretch'):
                 st.info("Operación cancelada")
-'''
-def gestion_secciones(service):
-    st.subheader("📚 Gestión de Secciones")
-    secciones = service.obtener_secciones()
+
+def reactivar_profesor(service):
+    st.subheader("🔄 Reactivar Profesor")
+    st.success("✅ Reactiva profesores que han sido desactivados previamente.")
     
-    if secciones:
-        df = pd.DataFrame(secciones, columns=['ID', 'Nombre', 'Letra', 'Grado', 'Nivel', 'Capacidad', 'Activo'])
-        df['Activo'] = df['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
+    # Obtener profesores inactivos
+    profesores = service.obtener_profesores_inactivos()
+    if not profesores:
+        st.info("📝 No hay profesores inactivos para reactivar.")
+        return
+
+    opciones = [f"ID: {p[0]} - {p[2]} {p[3]} (DNI: {p[1]})" for p in profesores]
+    seleccionado = st.selectbox("Seleccionar Profesor a Reactivar", opciones, key="reactivar_profesor")
+    
+    if seleccionado:
+        profesor_id = profesores[opciones.index(seleccionado)][0]
+        profesor_nombre = f"{profesores[opciones.index(seleccionado)][2]} {profesores[opciones.index(seleccionado)][3]}"
         
-        st.dataframe(df, use_container_width=True, height=400)
+        st.info(f"¿Estás seguro de que deseas reactivar a **{profesor_nombre}**?")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Total Secciones", len(secciones))
+            if st.button("✅ Confirmar Reactivación", width='stretch', type="primary"):
+                if service.reactivar_profesor(profesor_id):
+                    st.success(f"✅ Profesor **{profesor_nombre}** reactivado correctamente")
+                    st.rerun()
+                else:
+                    st.error("❌ Error al reactivar el profesor")
+        
         with col2:
-            activas = sum(1 for s in secciones if s[6] == 1)
-            st.metric("Secciones Activas", activas)
-    else:
-        st.info("📝 No hay secciones registradas.")
-
-
-
-def gestion_grados(service):
-    st.subheader("🎓 Gestión de Grados")
-    grados = service.obtener_grados()
-    
-    if grados:
-        df = pd.DataFrame(grados, columns=['ID', 'Nivel', 'Nombre', 'Número', 'Activo'])
-        df['Activo'] = df['Activo'].apply(lambda x: '✅ Sí' if x == 1 else '❌ No')
-        
-        st.dataframe(df, use_container_width=True, height=400)
-        
-        st.metric("Total Grados", len(grados))
-    else:
-        st.info("📝 No hay grados registrados.")
-
-def gestion_niveles(service):
-    st.subheader("🏛️ Gestión de Niveles Educativos")
-    niveles = service.obtener_niveles()
-    
-    if niveles:
-        df = pd.DataFrame(niveles, columns=['ID', 'Nombre', 'Descripción'])
-        
-        st.dataframe(df, use_container_width=True, height=400)
-        
-        st.metric("Total Niveles", len(niveles))
-    else:
-        st.info("📝 No hay niveles registrados.")
-
-
+            if st.button("❌ Cancelar", width='stretch'):
+                st.info("Operación cancelada")
 '''

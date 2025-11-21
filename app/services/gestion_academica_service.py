@@ -63,11 +63,11 @@ class GestionAcademicaService:
     def obtener_profesor_por_id(self, profesor_id):
         return self.db.obtener_profesor_por_id(profesor_id)
 
-    def agregar_profesor(self, dni, nombre, apellido, email=None, telefono=None):
-        return self.db.agregar_profesor(dni, nombre, apellido, email, telefono)
+    def agregar_profesor(self, dni, nombre, apellido, fecha_nacimiento, genero, email=None, telefono=None):
+        return self.db.agregar_profesor(dni, nombre, apellido, fecha_nacimiento, genero, email, telefono)
 
-    def actualizar_profesor(self, profesor_id, dni, nombre, apellido, email, telefono):
-        return self.db.actualizar_profesor(profesor_id, dni, nombre, apellido, email, telefono)
+    def actualizar_profesor(self, profesor_id, dni, nombre, apellido, fecha_nacimiento, genero, email, telefono):
+        return self.db.actualizar_profesor(profesor_id, dni, nombre, apellido, fecha_nacimiento, genero, email, telefono)
 
     def desactivar_profesor(self, profesor_id):
         return self.db.desactivar_profesor(profesor_id)
