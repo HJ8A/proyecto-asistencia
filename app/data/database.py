@@ -2,6 +2,7 @@ import sqlite3
 import os
 from datetime import datetime
 import qrcode
+from datetime import datetime, date, time
 import io
 import base64
 import uuid
@@ -378,28 +379,56 @@ class DatabaseManager:
             conn.close()
 
     # ---------------- MÉTODOS PARA ESTUDIANTES ---------------- #
-
     def agregar_estudiante(self, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id=None):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # PRIMERO verificar si el DNI ya existe
+            cursor.execute("SELECT id FROM estudiantes WHERE dni = ?", (dni,))
+            if cursor.fetchone():
+                raise ValueError("El DNI ya existe en la base de datos")
+            
+            # Insertar estudiante
             cursor.execute("""
                 INSERT INTO estudiantes (dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id))
+            
             estudiante_id = cursor.lastrowid
             
-            # Generar y guardar QR
+            # Generar y guardar QR único
             qr_data, qr_img = self.generar_qr_estudiante(estudiante_id, dni, nombre, apellido)
-            cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
+            
+            if qr_data:
+                cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
+                print(f"✅ QR guardado para estudiante {estudiante_id}: {qr_data}")
+            else:
+                print(f"⚠️ No se pudo generar QR para estudiante {estudiante_id}")
+                # No hacemos rollback, el estudiante se crea igual pero sin QR
             
             conn.commit()
             return estudiante_id
-        except sqlite3.IntegrityError:
-            raise ValueError("El DNI ya existe en la base de datos")
+            
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            if "dni" in str(e).lower():
+                raise ValueError("El DNI ya existe en la base de datos")
+            elif "qr_code" in str(e).lower():
+                # Colisión de QR, intentar nuevamente
+                print("🔄 Colisión de QR, regenerando...")
+                if 'estudiante_id' in locals():
+                    qr_data, qr_img = self.generar_qr_estudiante(estudiante_id, dni, nombre, apellido)
+                    if qr_data:
+                        cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
+                        conn.commit()
+                        return estudiante_id
+                raise ValueError("Error al generar código QR único")
+            else:
+                raise ValueError(f"Error de integridad en la base de datos: {e}")
         except Exception as e:
-            print("❌ Error al agregar estudiante:", e)
-            return None
+            conn.rollback()
+            print(f"❌ Error al agregar estudiante: {e}")
+            raise ValueError(f"Error al agregar estudiante: {e}")
         finally:
             conn.close()
    
@@ -490,153 +519,19 @@ class DatabaseManager:
         conn.close()
         return data
 
-    # ---------------- MÉTODOS MODIFICADOS PARA ASISTENCIAS ---------------- #
-
-    def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza):
-        """Registrar una asistencia en la base de datos"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            # Obtener la sección del estudiante
-            cursor.execute("SELECT seccion_id FROM estudiantes WHERE id = ?", (estudiante_id,))
-            estudiante = cursor.fetchone()
-            seccion_id = estudiante[0] if estudiante else None
-            
-            cursor.execute('''
-                INSERT INTO asistencias (estudiante_id, seccion_id, fecha, hora, metodo_deteccion, estado, confianza)
-                VALUES (?, ?, DATE('now'), TIME('now'), ?, 'presente', ?)
-            ''', (estudiante_id, seccion_id, metodo_deteccion, confianza))
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"❌ Error al registrar asistencia: {e}")
-            return False
-        finally:
-            conn.close()
-
-    def obtener_asistencias_hoy(self):
-        """Obtiene todas las asistencias registradas en la fecha actual"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        fecha_actual = datetime.now().date()
-        
-        cursor.execute("""
-            SELECT 
-                e.nombre, 
-                e.apellido, 
-                e.dni, 
-                s.nombre as seccion_nombre,
-                a.hora, 
-                a.metodo_deteccion, 
-                a.confianza
-            FROM asistencias a
-            JOIN estudiantes e ON a.estudiante_id = e.id
-            LEFT JOIN secciones s ON e.seccion_id = s.id
-            WHERE a.fecha = ?
-            ORDER BY a.hora DESC
-        """, (fecha_actual,))
-        
-        asistencias = cursor.fetchall()
-        conn.close()
-        return asistencias
-
-    def obtener_asistencias_por_seccion(self, seccion_id, fecha=None):
-        """Obtiene asistencias por sección y fecha"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        if fecha is None:
-            fecha = datetime.now().date()
-        
-        cursor.execute("""
-            SELECT 
-                e.nombre, 
-                e.apellido, 
-                e.dni,
-                a.hora, 
-                a.metodo_deteccion, 
-                a.confianza
-            FROM asistencias a
-            JOIN estudiantes e ON a.estudiante_id = e.id
-            WHERE a.seccion_id = ? AND a.fecha = ?
-            ORDER BY a.hora DESC
-        """, (seccion_id, fecha))
-        
-        asistencias = cursor.fetchall()
-        conn.close()
-        return asistencias
-
-    # ---------------- MÉTODOS EXISTENTES ---------------- #
-
-    def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido):
-        """Genera un código QR único para el estudiante"""
-        # Crear un identificador único
-        qr_data = f"EST_{estudiante_id}_{dni}_{uuid.uuid4().hex[:8]}"
-        
-        # Generar QR
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(qr_data)
-        qr.make(fit=True)
-        
-        # Crear imagen QR
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-        
-        return qr_data, qr_img
-
-    def guardar_encoding_facial(self, estudiante_id, encoding, imagen_path):
-        import pickle
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO encodings_faciales (estudiante_id, encoding_data, imagen_path)
-                VALUES (?, ?, ?)
-            """, (estudiante_id, pickle.dumps(encoding), imagen_path))
-            conn.commit()
-            print(f"✅ Encoding facial guardado para estudiante {estudiante_id}")
-        except Exception as e:
-            print("⚠️ Error guardando encoding facial:", e)
-        finally:
-            conn.close()
-
-    def cargar_encodings_faciales(self):
-        import pickle
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT e.nombre, ef.encoding_data, ef.estudiante_id
-            FROM encodings_faciales ef
-            JOIN estudiantes e ON ef.estudiante_id = e.id
-        """)
-        data = cursor.fetchall()
-        conn.close()
-
-        nombres, encodings, ids = [], [], []
-        for nombre, enc, eid in data:
-            nombres.append(nombre)
-            ids.append(eid)
-            encodings.append(pickle.loads(enc))
-        return encodings, nombres, ids
-
-    def desactivar_estudiante(self, estudiante_id):
-        """Desactiva un estudiante (eliminación lógica)"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("UPDATE estudiantes SET activo = 0 WHERE id = ?", (estudiante_id,))
-            conn.commit()
-            return True
-        except Exception as e:
-            print("❌ Error al desactivar estudiante:", e)
-            return False
-        finally:
-            conn.close()
+        def desactivar_estudiante(self, estudiante_id):
+            """Desactiva un estudiante (eliminación lógica)"""
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("UPDATE estudiantes SET activo = 0 WHERE id = ?", (estudiante_id,))
+                conn.commit()
+                return True
+            except Exception as e:
+                print("❌ Error al desactivar estudiante:", e)
+                return False
+            finally:
+                conn.close()
 
     def obtener_estudiantes_activos(self):
         """Obtiene solo estudiantes activos"""
@@ -713,6 +608,276 @@ class DatabaseManager:
             return False
         finally:
             conn.close()
+    
+    def obtener_estudiantes_sin_qr(self):
+        """Obtiene estudiantes que no tienen código QR"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, dni, nombre, apellido 
+                FROM estudiantes 
+                WHERE (qr_code IS NULL OR qr_code = '') AND activo = 1
+            """)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"❌ Error obteniendo estudiantes sin QR: {e}")
+            return []
+        finally:
+            conn.close()
+    # ---------------- MÉTODOS MODIFICADOS PARA ASISTENCIAS ---------------- #
+
+    def registrar_asistencia(estudiante_id, metodo_deteccion, confianza=None):
+        conn = sqlite3.connect('tu_base_de_datos.db')
+        cursor = conn.cursor()
+        
+        try:
+            # Obtener datos del estudiante y su sección actual
+            cursor.execute("""
+                SELECT e.seccion_id, s.nombre as seccion_nombre, g.nombre as grado_nombre,
+                    n.nombre as nivel_nombre
+                FROM estudiantes e
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                LEFT JOIN grados g ON s.grado_id = g.id
+                LEFT JOIN niveles n ON g.nivel_id = n.id
+                WHERE e.id = ?
+            """, (estudiante_id,))
+            
+            estudiante_data = cursor.fetchone()
+            seccion_id = estudiante_data[0] if estudiante_data else None
+            
+            # Determinar estado (presente/tardanza)
+            cursor.execute("SELECT hora_entrada, tolerancia_minutos FROM configuracion WHERE id=1")
+            config = cursor.fetchone()
+            hora_entrada = datetime.strptime(config[0], '%H:%M:%S').time() if config else time(8, 0)
+            tolerancia = config[1] if config else 15
+            
+            hora_actual = datetime.now().time()
+            estado = 'presente'
+            
+            # Calcular si es tardanza
+            hora_limite = time(
+                hora_entrada.hour, 
+                hora_entrada.minute + tolerancia
+            )
+            if hora_actual > hora_limite:
+                estado = 'tardanza'
+            
+            # Registrar asistencia
+            cursor.execute("""
+                INSERT INTO asistencias 
+                (estudiante_id, seccion_id, fecha, hora, metodo_deteccion, estado, confianza)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                estudiante_id,
+                seccion_id,
+                date.today(),
+                hora_actual,
+                metodo_deteccion,
+                estado,
+                confianza
+            ))
+            
+            conn.commit()
+            print(f"✅ Asistencia registrada correctamente - Estado: {estado}")
+            
+        except sqlite3.Error as e:
+            print(f"❌ Error al registrar asistencia: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def consultar_asistencias_por_fecha(fecha_consulta=None, seccion_id=None):
+        """Consulta asistencias por fecha y opcionalmente por sección"""
+        conn = sqlite3.connect('tu_base_de_datos.db')
+        cursor = conn.cursor()
+        
+        try:
+            if fecha_consulta is None:
+                fecha_consulta = date.today()
+            
+            query = """
+                SELECT 
+                    a.fecha,
+                    a.hora,
+                    e.nombre || ' ' || e.apellido as estudiante,
+                    e.dni,
+                    s.nombre as seccion,
+                    g.nombre as grado,
+                    n.nombre as nivel,
+                    a.metodo_deteccion,
+                    a.estado,
+                    a.confianza
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                LEFT JOIN grados g ON s.grado_id = g.id
+                LEFT JOIN niveles n ON g.nivel_id = n.id
+                WHERE a.fecha = ?
+            """
+            
+            params = [fecha_consulta]
+            
+            if seccion_id:
+                query += " AND a.seccion_id = ?"
+                params.append(seccion_id)
+                
+            query += " ORDER BY a.hora ASC"
+            
+            cursor.execute(query, params)
+            asistencias = cursor.fetchall()
+            
+            return asistencias
+            
+        except sqlite3.Error as e:
+            print(f"❌ Error en consulta: {e}")
+            return []
+        finally:
+            conn.close()
+
+
+    def obtener_asistencias_hoy(self):
+        """Obtiene todas las asistencias registradas en la fecha actual"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        fecha_actual = datetime.now().date()
+        
+        cursor.execute("""
+            SELECT 
+                e.nombre, 
+                e.apellido, 
+                e.dni, 
+                s.nombre as seccion_nombre,
+                a.hora, 
+                a.metodo_deteccion, 
+                a.confianza
+            FROM asistencias a
+            JOIN estudiantes e ON a.estudiante_id = e.id
+            LEFT JOIN secciones s ON e.seccion_id = s.id
+            WHERE a.fecha = ?
+            ORDER BY a.hora DESC
+        """, (fecha_actual,))
+        
+        asistencias = cursor.fetchall()
+        conn.close()
+        return asistencias
+
+    def obtener_asistencias_por_seccion(self, seccion_id, fecha=None):
+        """Obtiene asistencias por sección y fecha"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        if fecha is None:
+            fecha = datetime.now().date()
+        
+        cursor.execute("""
+            SELECT 
+                e.nombre, 
+                e.apellido, 
+                e.dni,
+                a.hora, 
+                a.metodo_deteccion, 
+                a.confianza
+            FROM asistencias a
+            JOIN estudiantes e ON a.estudiante_id = e.id
+            WHERE a.seccion_id = ? AND a.fecha = ?
+            ORDER BY a.hora DESC
+        """, (seccion_id, fecha))
+        
+        asistencias = cursor.fetchall()
+        conn.close()
+        return asistencias
+
+    # ---------------- MÉTODOS EXISTENTES ---------------- #
+    def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido, intento=0):
+        """Genera un código QR único para el estudiante"""
+        try:
+            # Limitar intentos para evitar recursión infinita
+            if intento > 5:
+                print(f"❌ No se pudo generar QR único para estudiante {estudiante_id} después de 5 intentos")
+                return None, None
+                
+            # Crear datos únicos combinando múltiples elementos
+            import time
+            import hashlib
+            import random
+            
+            timestamp = int(time.time())
+            random_salt = random.randint(1000, 9999)
+            
+            unique_string = f"EST{estudiante_id:04d}-{dni}-{timestamp}-{random_salt}"
+            hash_unique = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+            
+            # Formato final del QR
+            qr_data = f"EDU-{estudiante_id:04d}-{hash_unique}"
+            
+            # Verificar que este QR no exista ya en la base de datos
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM estudiantes WHERE qr_code = ? AND id != ?", (qr_data, estudiante_id))
+            existing = cursor.fetchone()
+            conn.close()
+            
+            # Si ya existe, generar uno nuevo
+            if existing:
+                print(f"🔄 QR duplicado detectado, regenerando... (intento {intento + 1})")
+                return self.generar_qr_estudiante(estudiante_id, dni, nombre, apellido, intento + 1)
+            
+            # Crear código QR
+            import qrcode
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_data)
+            qr.make(fit=True)
+            
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            
+            print(f"✅ QR generado para {nombre} {apellido}: {qr_data}")
+            return qr_data, qr_img
+            
+        except Exception as e:
+            print(f"❌ Error generando QR para estudiante {estudiante_id}: {e}")
+            return None, None
+
+    def guardar_encoding_facial(self, estudiante_id, encoding, imagen_path):
+        import pickle
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO encodings_faciales (estudiante_id, encoding_data, imagen_path)
+                VALUES (?, ?, ?)
+            """, (estudiante_id, pickle.dumps(encoding), imagen_path))
+            conn.commit()
+            print(f"✅ Encoding facial guardado para estudiante {estudiante_id}")
+        except Exception as e:
+            print("⚠️ Error guardando encoding facial:", e)
+        finally:
+            conn.close()
+
+    def cargar_encodings_faciales(self):
+        import pickle
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT e.nombre, ef.encoding_data, ef.estudiante_id
+            FROM encodings_faciales ef
+            JOIN estudiantes e ON ef.estudiante_id = e.id
+        """)
+        data = cursor.fetchall()
+        conn.close()
+
+        nombres, encodings, ids = [], [], []
+        for nombre, enc, eid in data:
+            nombres.append(nombre)
+            ids.append(eid)
+            encodings.append(pickle.loads(enc))
+        return encodings, nombres, ids
 
     def obtener_estudiante_por_qr(self, qr_data):
         """Obtiene estudiante por código QR"""
@@ -739,7 +904,205 @@ class DatabaseManager:
             return None
         finally:
             conn.close()
-   
+    
+    def obtener_asistencias_del_dia(self):
+        """Obtiene las asistencias del día actual (solo los IDs de estudiantes)"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            from datetime import datetime
+            hoy = datetime.now().date()
+            
+            cursor.execute('''
+                SELECT estudiante_id 
+                FROM asistencias 
+                WHERE fecha = ?
+            ''', (hoy,))
+            
+            data = cursor.fetchall()
+            # Devolver una lista de IDs de estudiantes
+            return [row[0] for row in data]
+        except Exception as e:
+            print(f"❌ Error obteniendo asistencias del día: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def obtener_asistencias_completas_del_dia(self):
+        """Obtiene todas las asistencias del día con información completa"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            from datetime import datetime
+            hoy = datetime.now().date()
+            
+            cursor.execute('''
+                SELECT 
+                    e.nombre, 
+                    e.apellido, 
+                    e.dni, 
+                    a.hora, 
+                    a.metodo_deteccion, 
+                    a.confianza,
+                    s.nombre as seccion_nombre
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                WHERE a.fecha = ?
+                ORDER BY a.hora DESC
+            ''', (hoy,))
+            
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"❌ Error obteniendo asistencias completas del día: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def obtener_estadisticas_del_dia(self):
+        """Obtiene estadísticas de asistencias del día"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            from datetime import datetime
+            hoy = datetime.now().date()
+            
+            # Total asistencias
+            cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ?', (hoy,))
+            total_asistencias = cursor.fetchone()[0]
+            
+            # Por método de detección
+            cursor.execute('''
+                SELECT metodo_deteccion, COUNT(*) 
+                FROM asistencias 
+                WHERE fecha = ? 
+                GROUP BY metodo_deteccion
+            ''', (hoy,))
+            por_metodo = dict(cursor.fetchall())
+            
+            # Por sección
+            cursor.execute('''
+                SELECT s.nombre, COUNT(*) 
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                WHERE a.fecha = ?
+                GROUP BY s.nombre
+            ''', (hoy,))
+            por_seccion = dict(cursor.fetchall())
+            
+            return {
+                'total_asistencias': total_asistencias,
+                'por_metodo': por_metodo,
+                'por_seccion': por_seccion
+            }
+        except Exception as e:
+            print(f"❌ Error obteniendo estadísticas del día: {e}")
+            return {'total_asistencias': 0, 'por_metodo': {}, 'por_seccion': {}}
+        finally:
+            conn.close()
+
+    def verificar_y_corregir_qr_duplicados(self):
+        """Verifica y corrige códigos QR duplicados en la base de datos"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Encontrar QR duplicados
+            cursor.execute("""
+                SELECT qr_code, COUNT(*) as count 
+                FROM estudiantes 
+                WHERE qr_code IS NOT NULL 
+                GROUP BY qr_code 
+                HAVING COUNT(*) > 1
+            """)
+            duplicados = cursor.fetchall()
+            
+            if not duplicados:
+                print("✅ No se encontraron QR duplicados")
+                return
+            
+            print(f"🔧 Encontrados {len(duplicados)} QR duplicados, corrigiendo...")
+            
+            for qr_code, count in duplicados:
+                # Obtener todos los estudiantes con este QR
+                cursor.execute("""
+                    SELECT id, dni, nombre, apellido 
+                    FROM estudiantes 
+                    WHERE qr_code = ? 
+                    ORDER BY id
+                """, (qr_code,))
+                estudiantes = cursor.fetchall()
+                
+                # Mantener el primer estudiante con este QR, regenerar los demás
+                for i, (est_id, dni, nombre, apellido) in enumerate(estudiantes):
+                    if i == 0:
+                        continue  # Mantener el primero
+                    
+                    # Generar nuevo QR único
+                    nuevo_qr_data, nuevo_qr_img = self.generar_qr_estudiante(est_id, dni, nombre, apellido)
+                    if nuevo_qr_data:
+                        cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (nuevo_qr_data, est_id))
+                        print(f"✅ QR corregido para {nombre} {apellido}: {nuevo_qr_data}")
+            
+            conn.commit()
+            print("✅ Corrección de QR duplicados completada")
+            
+        except Exception as e:
+            print(f"❌ Error corrigiendo QR duplicados: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def obtener_estudiantes_con_qr(self):
+        """Obtiene estudiantes que tienen QR generado"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT e.id, e.nombre, e.apellido, e.dni, e.qr_code, s.nombre as seccion
+                FROM estudiantes e
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                WHERE e.qr_code IS NOT NULL AND e.activo = 1
+                ORDER BY e.apellido, e.nombre
+            """)
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"❌ Error obteniendo estudiantes con QR: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def obtener_qr_imagen(self, estudiante_id):
+        """Regenera la imagen QR para un estudiante existente"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT qr_code, dni, nombre, apellido FROM estudiantes WHERE id = ?", (estudiante_id,))
+            result = cursor.fetchone()
+            
+            if not result or not result[0]:
+                return None
+                
+            qr_data, dni, nombre, apellido = result
+            
+            # Regenerar imagen QR
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_data)
+            qr.make(fit=True)
+            
+            return qr.make_image(fill_color="black", back_color="white")
+            
+        except Exception as e:
+            print(f"❌ Error generando imagen QR: {e}")
+            return None
+        finally:
+            conn.close()
     # -------------------------- PROFESORES -----------------------------   
 
     def desactivar_profesor(self, profesor_id):

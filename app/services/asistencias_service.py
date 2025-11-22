@@ -1,7 +1,7 @@
 import cv2
 import face_recognition
 import numpy as np
-from datetime import datetime
+from datetime import datetime, time
 import time
 from app.utils.qr_utils import qr_manager
 
@@ -13,17 +13,51 @@ class AsistenciaService:
         self.known_face_ids = []
         self.cargar_encodings()
         
-        # Control de frames
-        self.frame_skip = 2
+        # Control de frames separado para rostro y QR
+        self.frame_skip_facial = 2  # Procesar rostro cada 2 frames
+        self.frame_skip_qr = 1      # Procesar QR cada frame
         self.frame_count = 0
         
-        # Suavizado para detecciones
-        self.detection_history = {}
-        self.history_length = 5
+        # Control de detecciones recientes
+        self.estudiantes_registrados_hoy = set()
+        self.cargar_registros_del_dia()
         
-        # Control de QR para evitar múltiples registros
+        # Control de QR
         self.ultimo_qr_detectado = None
         self.tiempo_ultimo_qr = 0
+        self.qr_cooldown = 3  # segundos entre detecciones del mismo QR
+        
+        # Historial para suavizado
+        self.detection_history = {}
+        self.history_length = 3
+
+    def cargar_registros_del_dia(self):
+        """Cargar estudiantes ya registrados hoy para evitar duplicados"""
+        try:
+            registros = self.db.obtener_asistencias_del_dia()
+            self.estudiantes_registrados_hoy = set(registros)
+            print(f"📊 {len(self.estudiantes_registrados_hoy)} estudiantes ya registrados hoy")
+        except Exception as e:
+            print(f"❌ Error cargando registros del día: {e}")
+            self.estudiantes_registrados_hoy = set()
+
+    def obtener_asistencias_del_dia(self):
+        """Obtiene las asistencias del día actual con información completa"""
+        return self.db.obtener_asistencias_completas_del_dia()
+
+    def obtener_estadisticas_del_dia(self):
+        """Obtiene estadísticas de asistencias del día"""
+        return self.db.obtener_estadisticas_del_dia()  
+    
+    def cargar_encodings(self):
+        """Cargar encodings faciales desde la base de datos"""
+        try:
+            self.known_face_encodings, self.known_face_names, self.known_face_ids = self.db.cargar_encodings_faciales()
+            print(f"🔍 Sistema listo con {len(self.known_face_encodings)} encodings de {len(set(self.known_face_ids))} estudiantes")
+        except Exception as e:
+            print(f"❌ Error cargando encodings: {e}")
+            self.known_face_encodings, self.known_face_names, self.known_face_ids = [], [], []
+
         
     def cargar_encodings(self):
         """Cargar encodings faciales desde la base de datos"""
@@ -33,15 +67,27 @@ class AsistenciaService:
         except Exception as e:
             print(f"❌ Error cargando encodings: {e}")
             self.known_face_encodings, self.known_face_names, self.known_face_ids = [], [], []
-    
+
     def procesar_frame_combinado(self, frame):
-        """Procesa frame para detección facial Y de QR"""
-        self.frame_count += 1
-        
-        # Procesar solo cada X frames
-        if self.frame_count % self.frame_skip != 0:
-            return [], [], [], [], []
-        
+            """Procesa frame para detección facial Y de QR de forma optimizada"""
+            self.frame_count += 1
+            
+            # Siempre procesar QR (es menos costoso)
+            qr_estudiantes = self.procesar_qr(frame)
+            
+            # Procesar rostro solo cada X frames
+            if self.frame_count % self.frame_skip_facial == 0:
+                face_locations, face_names, face_ids, confianzas = self.procesar_rostros(frame)
+                face_locations, face_names, face_ids, confianzas = self.aplicar_suavizado(
+                    face_locations, face_names, face_ids, confianzas
+                )
+            else:
+                face_locations, face_names, face_ids, confianzas = [], [], [], []
+            
+            return face_locations, face_names, face_ids, confianzas, qr_estudiantes
+
+    def procesar_rostros(self, frame):
+        """Procesa detección facial optimizada"""
         # Reducir tamaño para mejor performance
         small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
@@ -53,51 +99,58 @@ class AsistenciaService:
         face_names = []
         face_ids = []
         confianzas = []
-        estudiantes_registrados_este_frame = []
         
         for face_encoding in face_encodings:
-            face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-            
-            if len(face_distances) > 0:
-                best_match_index = np.argmin(face_distances)
-                best_distance = face_distances[best_match_index]
-                confianza = 1 - best_distance
+            if len(self.known_face_encodings) == 0:
+                face_names.append("Desconocido")
+                face_ids.append(None)
+                confianzas.append(0.0)
+                continue
                 
-                if best_distance < 0.6:
-                    name = self.known_face_names[best_match_index]
-                    estudiante_id = self.known_face_ids[best_match_index]
-                    
-                    if confianza > 0.6 and estudiante_id not in estudiantes_registrados_este_frame:
-                        self.registrar_asistencia_unica(estudiante_id, confianza, 'rostro')
-                        estudiantes_registrados_este_frame.append(estudiante_id)
-                else:
-                    name = "Desconocido"
-                    estudiante_id = None
-                    confianza = best_distance
+            face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+            best_match_index = np.argmin(face_distances)
+            best_distance = face_distances[best_match_index]
+            confianza = 1 - best_distance
+            
+            if best_distance < 0.6:  # Threshold de reconocimiento
+                name = self.known_face_names[best_match_index]
+                estudiante_id = self.known_face_ids[best_match_index]
+                
+                # Registrar solo si no se ha registrado hoy
+                if estudiante_id not in self.estudiantes_registrados_hoy:
+                    if self.registrar_asistencia(estudiante_id, confianza, 'rostro'):
+                        self.estudiantes_registrados_hoy.add(estudiante_id)
+                        print(f"✅ Asistencia registrada: {name} por rostro (conf: {confianza:.2f})")
             else:
                 name = "Desconocido"
                 estudiante_id = None
-                confianza = 0.0
+                confianza = best_distance
             
             face_names.append(name)
             face_ids.append(estudiante_id)
             confianzas.append(confianza)
         
-        # Escalar coordenadas faciales
+        # Escalar coordenadas faciales de vuelta al tamaño original
         face_locations = [(top * 2, right * 2, bottom * 2, left * 2) 
-                        for (top, right, bottom, left) in face_locations]
+                         for (top, right, bottom, left) in face_locations]
         
-        # DETECCIÓN DE QR
-        qr_datos = qr_manager.detectar_qr_en_frame(frame)
+        return face_locations, face_names, face_ids, confianzas
+    
+    def procesar_qr(self, frame):
+        """Procesa detección de QR optimizada"""
         qr_estudiantes = []
         
-        for qr in qr_datos:
-            qr_data = qr['data']
+        try:
+            qr_datos = qr_manager.detectar_qr_en_frame(frame)
             
-            # Evitar múltiples registros del mismo QR (esperar 5 segundos)
-            tiempo_actual = time.time()
-            if (self.ultimo_qr_detectado != qr_data or 
-                tiempo_actual - self.tiempo_ultimo_qr > 5):
+            for qr in qr_datos:
+                qr_data = qr['data']
+                
+                # Evitar múltiples registros del mismo QR
+                tiempo_actual = time.time()
+                if (self.ultimo_qr_detectado == qr_data and 
+                    tiempo_actual - self.tiempo_ultimo_qr < self.qr_cooldown):
+                    continue
                 
                 # Buscar estudiante por QR
                 estudiante = self.db.obtener_estudiante_por_qr(qr_data)
@@ -105,97 +158,93 @@ class AsistenciaService:
                     estudiante_id = estudiante[0]
                     nombre = f"{estudiante[2]} {estudiante[3]}"
                     
-                    if estudiante_id not in estudiantes_registrados_este_frame:
-                        self.registrar_asistencia_unica(estudiante_id, 1.0, 'qr')
-                        estudiantes_registrados_este_frame.append(estudiante_id)
-                        
-                        qr_estudiantes.append({
-                            'id': estudiante_id,
-                            'nombre': nombre,
-                            'qr_data': qr_data,
-                            'rect': qr['rect']
-                        })
+                    # Registrar solo si no se ha registrado hoy
+                    if estudiante_id not in self.estudiantes_registrados_hoy:
+                        if self.registrar_asistencia(estudiante_id, 1.0, 'qr'):
+                            self.estudiantes_registrados_hoy.add(estudiante_id)
+                            print(f"✅ Asistencia registrada: {nombre} por QR")
+                    
+                    qr_estudiantes.append({
+                        'id': estudiante_id,
+                        'nombre': nombre,
+                        'qr_data': qr_data,
+                        'rect': qr['rect']
+                    })
                     
                     self.ultimo_qr_detectado = qr_data
                     self.tiempo_ultimo_qr = tiempo_actual
+                    
+        except Exception as e:
+            print(f"❌ Error en detección QR: {e}")
         
-        # Aplicar suavizado a detecciones faciales
-        face_locations, face_names, face_ids, confianzas = self.aplicar_suavizado(
-            face_locations, face_names, face_ids, confianzas
-        )
-        
-        return face_locations, face_names, face_ids, confianzas, qr_estudiantes
-    
+        return qr_estudiantes
+
     def aplicar_suavizado(self, face_locations, face_names, face_ids, confianzas):
-        """Aplicar suavizado mejorado para reducir parpadeo"""
+        """Suavizado mejorado que combina historial y detecciones actuales"""
         current_time = time.time()
         
-        # Limpiar detecciones antiguas
-        to_remove = []
-        for key in self.detection_history:
-            if current_time - self.detection_history[key]['timestamp'] > 3.0:
-                to_remove.append(key)
-        
-        for key in to_remove:
-            del self.detection_history[key]
+        # Limpiar historial antiguo
+        self.detection_history = {
+            k: v for k, v in self.detection_history.items() 
+            if current_time - v['timestamp'] < 2.0
+        }
         
         # Actualizar historial con detecciones actuales
         for i, (location, name, face_id, confianza) in enumerate(zip(face_locations, face_names, face_ids, confianzas)):
             if face_id and name != "Desconocido":
-                key = f"{face_id}"
+                key = str(face_id)
+                
                 if key not in self.detection_history:
                     self.detection_history[key] = {
                         'locations': [],
                         'names': [],
                         'confianzas': [],
-                        'timestamp': current_time,
-                        'count': 0
+                        'timestamp': current_time
                     }
                 
                 self.detection_history[key]['locations'].append(location)
                 self.detection_history[key]['names'].append(name)
                 self.detection_history[key]['confianzas'].append(confianza)
-                self.detection_history[key]['count'] += 1
                 self.detection_history[key]['timestamp'] = current_time
                 
-                # Mantener solo el historial reciente
+                # Mantener tamaño del historial
                 if len(self.detection_history[key]['locations']) > self.history_length:
                     self.detection_history[key]['locations'].pop(0)
                     self.detection_history[key]['names'].pop(0)
                     self.detection_history[key]['confianzas'].pop(0)
         
-        # Usar historial para estabilizar detecciones actuales
-        stabilized_locations = []
-        stabilized_names = []
-        stabilized_ids = []
-        stabilized_confianzas = []
+        # Combinar detecciones actuales con historial
+        final_locations = []
+        final_names = []
+        final_ids = []
+        final_confianzas = []
         
+        # Primero agregar detecciones actuales
+        for loc, name, fid, conf in zip(face_locations, face_names, face_ids, confianzas):
+            if name != "Desconocido":
+                final_locations.append(loc)
+                final_names.append(name)
+                final_ids.append(fid)
+                final_confianzas.append(conf)
+        
+        # Luego agregar del historial si no están en las actuales
+        current_ids = set(final_ids)
         for key, history in self.detection_history.items():
-            if history['count'] >= 2:
-                if len(history['locations']) > 0:
-                    # Usar la ubicación promedio del historial
-                    avg_location = (
-                        int(np.mean([loc[0] for loc in history['locations']])),
-                        int(np.mean([loc[1] for loc in history['locations']])),
-                        int(np.mean([loc[2] for loc in history['locations']])),
-                        int(np.mean([loc[3] for loc in history['locations']]))
-                    )
-                    avg_name = max(set(history['names']), key=history['names'].count)
-                    avg_confianza = np.mean(history['confianzas'])
-                    
-                    face_id = int(key) if key.isdigit() else None
-                    
-                    stabilized_locations.append(avg_location)
-                    stabilized_names.append(avg_name)
-                    stabilized_ids.append(face_id)
-                    stabilized_confianzas.append(avg_confianza)
+            if key not in current_ids and len(history['locations']) > 0:
+                # Usar el promedio del historial
+                avg_location = (
+                    int(np.mean([loc[0] for loc in history['locations']])),
+                    int(np.mean([loc[1] for loc in history['locations']])),
+                    int(np.mean([loc[2] for loc in history['locations']])),
+                    int(np.mean([loc[3] for loc in history['locations']]))
+                )
+                final_locations.append(avg_location)
+                final_names.append(max(set(history['names']), key=history['names'].count))
+                final_ids.append(int(key))
+                final_confianzas.append(np.mean(history['confianzas']))
         
-        # Si hay detecciones actuales, priorizarlas sobre el historial
-        if face_locations:
-            return face_locations, face_names, face_ids, confianzas
-        else:
-            return stabilized_locations, stabilized_names, stabilized_ids, stabilized_confianzas
-    
+        return final_locations, final_names, final_ids, final_confianzas
+
     def dibujar_resultados_combinados(self, frame, face_locations, face_names, confianzas, qr_estudiantes):
         """Dibuja resultados de detección facial y QR"""
         # Dibujar detecciones faciales
@@ -243,6 +292,25 @@ class AsistenciaService:
         
         return frame
     
+    def registrar_asistencia(self, estudiante_id, confianza, metodo):
+        """Registrar asistencia en la base de datos"""
+        try:
+            conn = self.db._get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO asistencias (estudiante_id, fecha, hora, metodo_deteccion, estado, confianza)
+                VALUES (?, DATE('now'), TIME('now'), ?, 'presente', ?)
+            ''', (estudiante_id, metodo, confianza))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error registrando asistencia: {e}")
+            return False
+        
     def registrar_asistencia_unica(self, estudiante_id, confianza, metodo):
         """Registrar asistencia solo si no se ha registrado hoy"""
         hoy = datetime.now().date()
@@ -318,8 +386,7 @@ class AsistenciaService:
             cap.release()
             cv2.destroyAllWindows()
             print("✅ Sistema combinado detenido")
-    
-    def obtener_asistencias_del_dia(self):
+   
         """Obtiene las asistencias del día actual"""
         hoy = datetime.now().date()
         conn = self.db._get_connection()

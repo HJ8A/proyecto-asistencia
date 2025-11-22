@@ -70,8 +70,9 @@ def mostrar_lista_estudiantes(service):
             'Teléfono', 'Email', 'Sección'
         ]]
         
-        df_display['Edad'] = df_display['Edad'].apply(lambda x: f"{int(x)} años" if pd.notna(x) else "N/A")
-        
+        df_display = df_display.copy()
+        df_display['Edad'] = df_display['Edad'].apply(lambda x: f"{int(x)} años" if pd.notna(x) else "N/A") 
+
         st.dataframe(df_display, width='stretch', height=400)
         
         # Mostrar estadísticas actualizadas
@@ -95,7 +96,16 @@ def registrar_nuevo_estudiante(service):
     secciones = service.obtener_secciones_activas()
     opciones_secciones = [("", "Seleccionar sección...")] + [(s[0], f"{s[4]} - {s[3]} - {s[1]}") for s in secciones]
     
-    with st.form("nuevo_estudiante", clear_on_submit=True):
+    # Inicializar el estado de sesión para los campos del formulario
+    if 'form_data' not in st.session_state:
+        st.session_state.form_data = {
+            'nombre': '', 'apellido': '', 'dni': '', 'fecha_nacimiento': datetime(2005, 1, 1).date(),
+            'genero': '', 'email': '', 'telefono': '', 'direccion': '', 
+            'nombre_contacto_emergencia': '', 'telefono_contacto_emergencia': '',
+            'turno': 'mañana', 'año_escolar': 1, 'seccion_seleccionada': opciones_secciones[0]
+        }
+    
+    with st.form("nuevo_estudiante", clear_on_submit=False):
         st.markdown(
             '<div style="color: #1a1a1a; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; text-align: center;">'
             '📝 Información Personal'
@@ -108,12 +118,14 @@ def registrar_nuevo_estudiante(service):
         with col1:
             nombre = st.text_input(
                 "Nombre*", 
+                value=st.session_state.form_data['nombre'],
                 placeholder="Juan",
                 help="Nombre del estudiante (obligatorio)",
                 key="nombre_input"
             )
             dni = st.text_input(
                 "DNI*", 
+                value=st.session_state.form_data['dni'],
                 placeholder="72545117",
                 help="Documento Nacional de Identidad (8 dígitos, obligatorio)",
                 max_chars=8,
@@ -121,15 +133,16 @@ def registrar_nuevo_estudiante(service):
             )
             fecha_nacimiento = st.date_input(
                 "Fecha de Nacimiento*",
+                value=st.session_state.form_data['fecha_nacimiento'],
                 min_value=datetime(1990, 1, 1).date(),
                 max_value=datetime.now().date(),
-                value=datetime(2005, 1, 1).date(),
                 help="Fecha de nacimiento del estudiante"
             )
             
         with col2:
             apellido = st.text_input(
                 "Apellido*", 
+                value=st.session_state.form_data['apellido'],
                 placeholder="Pérez",
                 help="Apellido del estudiante (obligatorio)",
                 key="apellido_input"
@@ -137,6 +150,7 @@ def registrar_nuevo_estudiante(service):
             genero = st.selectbox(
                 "Género*",
                 options=["", "M", "F"],
+                index=0 if st.session_state.form_data['genero'] == "" else 1 if st.session_state.form_data['genero'] == "M" else 2,
                 format_func=lambda x: "Seleccionar..." if x == "" else "Masculino" if x == "M" else "Femenino",
                 help="Género del estudiante"
             )
@@ -144,6 +158,7 @@ def registrar_nuevo_estudiante(service):
             seccion_seleccionada = st.selectbox(
                 "Sección*",
                 options=opciones_secciones,
+                index=opciones_secciones.index(st.session_state.form_data['seccion_seleccionada']) if st.session_state.form_data['seccion_seleccionada'] in opciones_secciones else 0,
                 format_func=lambda x: x[1],
                 help="Seleccione la sección del estudiante",
                 key="seccion_select"
@@ -154,12 +169,14 @@ def registrar_nuevo_estudiante(service):
         with col3:
             email = st.text_input(
                 "Email", 
+                value=st.session_state.form_data['email'],
                 placeholder="juan@example.com",
                 help="Email del estudiante (opcional)",
                 key="email_input"
             )
             telefono = st.text_input(
                 "Teléfono", 
+                value=st.session_state.form_data['telefono'],
                 placeholder="987654321",
                 help="Teléfono del estudiante (opcional)",
                 key="telefono_input"
@@ -167,19 +184,21 @@ def registrar_nuevo_estudiante(service):
             turno = st.selectbox(
                 "Turno",
                 options=["", "mañana", "tarde", "noche"],
-                index=1,
+                index=["", "mañana", "tarde", "noche"].index(st.session_state.form_data['turno']),
                 format_func=lambda x: "Seleccionar..." if x == "" else x.capitalize(),
                 help="Turno del estudiante (opcional)"
             )
         with col4:
             direccion = st.text_input(
                 "Dirección", 
+                value=st.session_state.form_data['direccion'],
                 placeholder="Av. Principal 123",
                 help="Dirección del estudiante (opcional)",
                 key="direccion_input"
             )
             telefono_contacto_emergencia = st.text_input(
                 "Teléfono de Emergencia", 
+                value=st.session_state.form_data['telefono_contacto_emergencia'],
                 placeholder="987654321",
                 help="Teléfono del contacto de emergencia (opcional)",
                 key="telefono_emergencia_input"
@@ -188,7 +207,7 @@ def registrar_nuevo_estudiante(service):
                 "Año Escolar", 
                 min_value=1, 
                 max_value=12, 
-                value=1,
+                value=st.session_state.form_data['año_escolar'],
                 help="Año escolar del estudiante (opcional)",
                 key="año_escolar_input"
             )
@@ -196,6 +215,7 @@ def registrar_nuevo_estudiante(service):
         # Este campo queda fuera de las columnas como solicitaste
         nombre_contacto_emergencia = st.text_input(
             "Contacto de Emergencia", 
+            value=st.session_state.form_data['nombre_contacto_emergencia'],
             placeholder="María Pérez",
             help="Nombre del contacto de emergencia (opcional)",
             key="contacto_emergencia_input"
@@ -211,11 +231,28 @@ def registrar_nuevo_estudiante(service):
         
         submitted = st.form_submit_button(
             "📝 Registrar Estudiante", 
-            use_container_width=True,
+            width='stretch',
             type="primary"
         )
         
         if submitted:
+            # Actualizar el estado de sesión con los valores actuales
+            st.session_state.form_data.update({
+                'nombre': nombre,
+                'apellido': apellido,
+                'dni': dni,
+                'fecha_nacimiento': fecha_nacimiento,
+                'genero': genero,
+                'email': email,
+                'telefono': telefono,
+                'direccion': direccion,
+                'nombre_contacto_emergencia': nombre_contacto_emergencia,
+                'telefono_contacto_emergencia': telefono_contacto_emergencia,
+                'turno': turno,
+                'año_escolar': año_escolar,
+                'seccion_seleccionada': seccion_seleccionada
+            })
+            
             # Validaciones
             errores = []
             
@@ -254,13 +291,24 @@ def registrar_nuevo_estudiante(service):
                     # Convertir fecha_nacimiento a string para la base de datos
                     fecha_nacimiento_str = fecha_nacimiento.strftime('%Y-%m-%d')
                     
-                    estudiante_id = service.registrar(
+                    # Registrar estudiante usando el método del servicio que incluye generación de QR
+                    estudiante_id = service.agregar_estudiante(
                         dni, nombre, apellido, fecha_nacimiento_str, genero,
                         telefono, email, direccion, nombre_contacto_emergencia,
                         telefono_contacto_emergencia, turno, año_escolar, seccion_id
                     )
+                    
                     if estudiante_id:
                         st.success(f"✅ Estudiante **{nombre} {apellido}** registrado correctamente con ID: {estudiante_id}")
+                        st.success("📱 Código QR generado automáticamente")
+                        
+                        # Limpiar el formulario después de un registro exitoso
+                        st.session_state.form_data = {
+                            'nombre': '', 'apellido': '', 'dni': '', 'fecha_nacimiento': datetime(2005, 1, 1).date(),
+                            'genero': '', 'email': '', 'telefono': '', 'direccion': '', 
+                            'nombre_contacto_emergencia': '', 'telefono_contacto_emergencia': '',
+                            'turno': 'mañana', 'año_escolar': 1, 'seccion_seleccionada': opciones_secciones[0]
+                        }
                         st.rerun()
                     else:
                         st.error("❌ Error al registrar el estudiante")
@@ -501,6 +549,7 @@ def capturar_rostros(service):
                 st.write(f"**Encodings guardados para este estudiante:** {encodings_estudiante}")
             except:
                 st.write("**Encodings guardados:** 0")
+
 '''
 def desactivar_estudiante(service):
     st.subheader("🚫 Desactivar Estudiante")
@@ -562,102 +611,73 @@ def mostrar_estudiantes_desactivados(service):
 '''
 
 def descargar_qr_estudiantes(service):
-    st.subheader("📄 Descargar Códigos QR")
+    st.subheader("📄 Descargar Códigos QR de Estudiantes")
     
-    estudiantes = service.obtener_activos()
+    # Obtener lista de estudiantes con sus QR
+    estudiantes = service.obtener_estudiantes_con_qr()
+    
     if not estudiantes:
-        st.warning("⚠️ No hay estudiantes activos.")
+        st.warning("📝 No hay estudiantes con códigos QR generados.")
+        st.info("💡 Los códigos QR se generan automáticamente al registrar nuevos estudiantes.")
         return
     
-    st.info("""
-    **Instrucciones:**
-    - Selecciona un estudiante
-    - Descarga su código QR único
-    - Imprime el QR en el carnet del estudiante
-    - El QR servirá como respaldo cuando el reconocimiento facial falle
-    """)
-    
     # Selector de estudiante
-    opciones = [f"ID: {e[0]} - {e[2]} {e[3]} (DNI: {e[1]})" for e in estudiantes]
-    estudiante_seleccionado = st.selectbox("Seleccionar Estudiante", opciones, key="descargar_qr")
+    opciones_estudiantes = [(est[0], f"{est[1]} {est[2]} - DNI: {est[3]} - QR: {est[4]}") for est in estudiantes]
+    
+    if not opciones_estudiantes:
+        st.warning("No hay estudiantes con QR disponibles")
+        return
+        
+    estudiante_seleccionado = st.selectbox(
+        "Selecciona un estudiante:",
+        options=opciones_estudiantes,
+        format_func=lambda x: x[1],
+        key="selector_estudiante_qr"
+    )
     
     if estudiante_seleccionado:
-        estudiante_index = opciones.index(estudiante_seleccionado)
-        estudiante_id = estudiantes[estudiante_index][0]
-        nombre = estudiantes[estudiante_index][2]
-        apellido = estudiantes[estudiante_index][3]
-        dni = estudiantes[estudiante_index][1]
+        estudiante_id = estudiante_seleccionado[0]
         
-        # Obtener datos del estudiante para generar QR
-        datos_estudiante = service.obtener_por_id(estudiante_id)
-        if datos_estudiante:
-            # El qr_code debería estar en el índice 8
-            if len(datos_estudiante) > 8:
-                qr_data = datos_estudiante[8]  # qr_code está en la posición 8
-            else:
-                # Si no hay qr_code, generar uno nuevo
-                try:
-                    qr_data, qr_img = service.db.generar_qr_estudiante(estudiante_id, dni, nombre, apellido)
-                    # Actualizar la base de datos con el nuevo QR
-                    conn = service.db._get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE estudiantes SET qr_code = ? WHERE id = ?", (qr_data, estudiante_id))
-                    conn.commit()
-                    conn.close()
-                    st.info("🔄 Se generó un nuevo código QR para este estudiante")
-                except Exception as e:
-                    st.error(f"❌ Error generando QR: {e}")
-                    return
-            
-            if not qr_data:
-                st.error("❌ Este estudiante no tiene código QR generado.")
-                return
-            
-            # Crear imagen QR
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(qr_data)
-            qr.make(fit=True)
-            
-            qr_img = qr.make_image(fill_color="black", back_color="white")
-            
-            # ✅ CORRECCIÓN: Convertir PIL Image a bytes para Streamlit
-            buf = io.BytesIO()
-            qr_img.save(buf, format="PNG")
-            buf.seek(0)
-            qr_image_bytes = buf.getvalue()
-            
-            # Mostrar información
+        # Obtener y mostrar QR
+        qr_img = service.obtener_qr_imagen(estudiante_id)
+        
+        if qr_img:
             col1, col2 = st.columns([1, 2])
             
             with col1:
-                # ✅ CORRECCIÓN: Usar los bytes en lugar del objeto PIL
-                st.image(qr_image_bytes, caption=f"QR de {nombre} {apellido}", width=200)
+                # CORRECCIÓN: Convertir PIL Image a bytes para st.image
+                import io
+                buf = io.BytesIO()
+                qr_img.save(buf, format="PNG")
+                buf.seek(0)
                 
+                st.image(buf, caption=f"QR del Estudiante", use_container_width=True)
+            
             with col2:
+                # Información del estudiante
+                estudiante_info = next(est for est in estudiantes if est[0] == estudiante_id)
                 st.info(f"""
                 **Información del Estudiante:**
-                - **Nombre:** {nombre} {apellido}
-                - **DNI:** {dni}
-                - **ID:** {estudiante_id}
-                - **Código QR:** `{qr_data}`
+                - **Nombre:** {estudiante_info[1]} {estudiante_info[2]}
+                - **DNI:** {estudiante_info[3]}
+                - **Código QR:** `{estudiante_info[4]}`
+                - **Sección:** {estudiante_info[5] or 'No asignada'}
                 """)
             
-            # Botón para descargar
-            st.download_button(
-                label="📥 Descargar QR",
-                data=qr_image_bytes,  # ✅ Usar los mismos bytes
-                file_name=f"QR_{nombre}_{apellido}_{dni}.png",
-                mime="image/png",
-                use_container_width=True,
-                type="primary"
-            )
+            # Botón de descarga
+            buf_download = io.BytesIO()
+            qr_img.save(buf_download, format="PNG")
+            buf_download.seek(0)
             
-            st.success("✅ El código QR está listo para descargar e imprimir en el carnet del estudiante.")  
+            st.download_button(
+                label="📥 Descargar Código QR",
+                data=buf_download,
+                file_name=f"QR_{estudiante_info[1]}_{estudiante_info[2]}.png",
+                mime="image/png",
+                use_container_width=True
+            )
+        else:
+            st.error("❌ No se pudo generar el código QR para este estudiante")
 
 def gestion_estado_estudiantes(service):
     st.subheader("🚫 Gestión de Estado de Estudiantes")

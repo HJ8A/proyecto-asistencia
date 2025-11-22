@@ -2,7 +2,7 @@ class EstudianteService:
     def __init__(self, db_manager):
         self.db = db_manager
 
-    def registrar(self, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id):
+    def agregar_estudiante(self, dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id):
         return self.db.agregar_estudiante(dni, nombre, apellido, fecha_nacimiento, genero, telefono, email, direccion, nombre_contacto_emergencia, telefono_contacto_emergencia, turno, año_escolar, seccion_id)
 
     def obtener_todos(self):
@@ -37,3 +37,10 @@ class EstudianteService:
 
     def obtener_niveles_activos(self):
         return self.db.obtener_niveles()
+    def obtener_estudiantes_con_qr(self):
+        """Obtiene lista de estudiantes que tienen QR generado"""
+        return self.db.obtener_estudiantes_con_qr()
+
+    def obtener_qr_imagen(self, estudiante_id):
+        """Genera la imagen QR para un estudiante"""
+        return self.db.obtener_qr_imagen(estudiante_id)
