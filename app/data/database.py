@@ -1,8 +1,8 @@
 import sqlite3
 import os
-from datetime import datetime
 import qrcode
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
+
 import io
 import base64
 import uuid
@@ -626,44 +626,55 @@ class DatabaseManager:
         finally:
             conn.close()
     # ---------------- MÉTODOS MODIFICADOS PARA ASISTENCIAS ---------------- #
-
-    def registrar_asistencia(estudiante_id, metodo_deteccion, confianza=None):
-        conn = sqlite3.connect('tu_base_de_datos.db')
+    def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza=None):
+        """Registra una asistencia con todos los campos necesarios"""
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         try:
-            # Obtener datos del estudiante y su sección actual
+            # 1. Obtener datos del estudiante y sección
             cursor.execute("""
-                SELECT e.seccion_id, s.nombre as seccion_nombre, g.nombre as grado_nombre,
-                    n.nombre as nivel_nombre
+                SELECT e.seccion_id, s.nombre as seccion_nombre
                 FROM estudiantes e
                 LEFT JOIN secciones s ON e.seccion_id = s.id
-                LEFT JOIN grados g ON s.grado_id = g.id
-                LEFT JOIN niveles n ON g.nivel_id = n.id
-                WHERE e.id = ?
+                WHERE e.id = ? AND e.activo = 1
             """, (estudiante_id,))
             
             estudiante_data = cursor.fetchone()
-            seccion_id = estudiante_data[0] if estudiante_data else None
+            if not estudiante_data:
+                print(f"❌ Estudiante {estudiante_id} no encontrado o inactivo")
+                return False
+                
+            seccion_id = estudiante_data[0]
             
-            # Determinar estado (presente/tardanza)
+            # 2. Verificar si ya se registró hoy (para evitar duplicados)
+            hoy = date.today()
+            cursor.execute("""
+                SELECT id FROM asistencias 
+                WHERE estudiante_id = ? AND fecha = ? AND metodo_deteccion = ?
+            """, (estudiante_id, hoy, metodo_deteccion))
+            
+            if cursor.fetchone():
+                print(f"⚠️ Asistencia ya registrada hoy para estudiante {estudiante_id}")
+                return True  # O False si quieres evitar duplicados completamente
+            
+            # 3. Determinar estado (presente/tardanza) según configuración
             cursor.execute("SELECT hora_entrada, tolerancia_minutos FROM configuracion WHERE id=1")
             config = cursor.fetchone()
-            hora_entrada = datetime.strptime(config[0], '%H:%M:%S').time() if config else time(8, 0)
+            hora_entrada_str = config[0] if config else '08:00:00'
             tolerancia = config[1] if config else 15
             
+            # Convertir y calcular tiempos
+            hora_entrada = datetime.strptime(hora_entrada_str, '%H:%M:%S').time()
             hora_actual = datetime.now().time()
             estado = 'presente'
             
-            # Calcular si es tardanza
-            hora_limite = time(
-                hora_entrada.hour, 
-                hora_entrada.minute + tolerancia
-            )
+            # Calcular hora límite para tardanza
+            hora_limite = self._calcular_hora_limite(hora_entrada, tolerancia)
             if hora_actual > hora_limite:
                 estado = 'tardanza'
             
-            # Registrar asistencia
+            # 4. Registrar asistencia
             cursor.execute("""
                 INSERT INTO asistencias 
                 (estudiante_id, seccion_id, fecha, hora, metodo_deteccion, estado, confianza)
@@ -671,21 +682,34 @@ class DatabaseManager:
             """, (
                 estudiante_id,
                 seccion_id,
-                date.today(),
+                hoy,
                 hora_actual,
                 metodo_deteccion,
                 estado,
                 confianza
             ))
             
+            # 5. Obtener nombre del estudiante para el log
+            cursor.execute("SELECT nombre, apellido FROM estudiantes WHERE id = ?", (estudiante_id,))
+            estudiante_info = cursor.fetchone()
+            nombre_completo = f"{estudiante_info[0]} {estudiante_info[1]}" if estudiante_info else "Desconocido"
+            
             conn.commit()
-            print(f"✅ Asistencia registrada correctamente - Estado: {estado}")
+            print(f"✅ Asistencia registrada: {nombre_completo} - {metodo_deteccion} - {estado}")
+            return True
             
         except sqlite3.Error as e:
             print(f"❌ Error al registrar asistencia: {e}")
             conn.rollback()
+            return False
         finally:
             conn.close()
+
+    def _calcular_hora_limite(self, hora_entrada, tolerancia_minutos):
+        """Calcula la hora límite para considerar tardanza"""
+        hora_limite = datetime.combine(date.today(), hora_entrada)
+        hora_limite += timedelta(minutes=tolerancia_minutos)
+        return hora_limite.time()
 
     def consultar_asistencias_por_fecha(fecha_consulta=None, seccion_id=None):
         """Consulta asistencias por fecha y opcionalmente por sección"""
@@ -735,33 +759,76 @@ class DatabaseManager:
         finally:
             conn.close()
 
-
     def obtener_asistencias_hoy(self):
-        """Obtiene todas las asistencias registradas en la fecha actual"""
+        """Obtiene todas las asistencias del día actual con información completa"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        fecha_actual = datetime.now().date()
+        try:
+            fecha_actual = date.today()
+            
+            cursor.execute("""
+                SELECT 
+                    a.id,
+                    e.nombre,
+                    e.apellido, 
+                    e.dni,
+                    s.nombre as seccion_nombre,
+                    a.hora,
+                    a.metodo_deteccion,
+                    a.confianza,
+                    a.estado
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                WHERE a.fecha = ?
+                ORDER BY a.hora DESC
+            """, (fecha_actual,))
+            
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo asistencias de hoy: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def obtener_estadisticas_hoy(self):
+        """Obtiene estadísticas de asistencias del día actual"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT 
-                e.nombre, 
-                e.apellido, 
-                e.dni, 
-                s.nombre as seccion_nombre,
-                a.hora, 
-                a.metodo_deteccion, 
-                a.confianza
-            FROM asistencias a
-            JOIN estudiantes e ON a.estudiante_id = e.id
-            LEFT JOIN secciones s ON e.seccion_id = s.id
-            WHERE a.fecha = ?
-            ORDER BY a.hora DESC
-        """, (fecha_actual,))
-        
-        asistencias = cursor.fetchall()
-        conn.close()
-        return asistencias
+        try:
+            fecha_actual = date.today()
+            
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_asistencias,
+                    COUNT(DISTINCT estudiante_id) as estudiantes_unicos,
+                    SUM(CASE WHEN estado = 'presente' THEN 1 ELSE 0 END) as presentes,
+                    SUM(CASE WHEN estado = 'tardanza' THEN 1 ELSE 0 END) as tardanzas,
+                    SUM(CASE WHEN metodo_deteccion = 'rostro' THEN 1 ELSE 0 END) as por_rostro,
+                    SUM(CASE WHEN metodo_deteccion = 'qr' THEN 1 ELSE 0 END) as por_qr
+                FROM asistencias 
+                WHERE fecha = ?
+            """, (fecha_actual,))
+            
+            stats = cursor.fetchone()
+            return {
+                'total_asistencias': stats[0] if stats else 0,
+                'estudiantes_unicos': stats[1] if stats else 0,
+                'presentes': stats[2] if stats else 0,
+                'tardanzas': stats[3] if stats else 0,
+                'por_rostro': stats[4] if stats else 0,
+                'por_qr': stats[5] if stats else 0,
+                'fecha': fecha_actual
+            }
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo estadísticas: {e}")
+            return {}
+        finally:
+            conn.close()
 
     def obtener_asistencias_por_seccion(self, seccion_id, fecha=None):
         """Obtiene asistencias por sección y fecha"""
@@ -789,7 +856,198 @@ class DatabaseManager:
         conn.close()
         return asistencias
 
+    def obtener_asistencias_por_fecha(self, fecha_consulta=None, seccion_id=None):
+        """Consulta asistencias por fecha y opcionalmente por sección"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            if fecha_consulta is None:
+                fecha_consulta = date.today()
+            
+            query = """
+                SELECT 
+                    a.fecha,
+                    a.hora,
+                    e.nombre,
+                    e.apellido,
+                    e.dni,
+                    s.nombre as seccion,
+                    g.nombre as grado,
+                    n.nombre as nivel,
+                    a.metodo_deteccion,
+                    a.estado,
+                    a.confianza
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                LEFT JOIN grados g ON s.grado_id = g.id
+                LEFT JOIN niveles n ON g.nivel_id = n.id
+                WHERE a.fecha = ?
+            """
+            
+            params = [fecha_consulta]
+            
+            if seccion_id:
+                query += " AND a.seccion_id = ?"
+                params.append(seccion_id)
+                
+            query += " ORDER BY a.hora DESC"
+            
+            cursor.execute(query, params)
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error en consulta por fecha: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def obtener_asistencias_por_rango_fechas(self, fecha_inicio, fecha_fin, seccion_id=None):
+        """Obtiene asistencias por rango de fechas"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            query = """
+                SELECT 
+                    a.fecha,
+                    a.hora,
+                    e.nombre,
+                    e.apellido,
+                    e.dni,
+                    s.nombre as seccion,
+                    g.nombre as grado,
+                    n.nombre as nivel,
+                    a.metodo_deteccion,
+                    a.estado,
+                    a.confianza
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                LEFT JOIN grados g ON s.grado_id = g.id
+                LEFT JOIN niveles n ON g.nivel_id = n.id
+                WHERE a.fecha BETWEEN ? AND ?
+            """
+            
+            params = [fecha_inicio, fecha_fin]
+            
+            if seccion_id:
+                query += " AND a.seccion_id = ?"
+                params.append(seccion_id)
+                
+            query += " ORDER BY a.fecha DESC, a.hora DESC"
+            
+            cursor.execute(query, params)
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error en consulta por rango: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def obtener_asistencias_por_estudiante(self, estudiante_id, fecha_inicio=None, fecha_fin=None):
+        """Obtiene asistencias de un estudiante específico"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            if fecha_inicio is None:
+                fecha_inicio = date.today() - timedelta(days=30)  # Últimos 30 días por defecto
+            
+            if fecha_fin is None:
+                fecha_fin = date.today()
+            
+            cursor.execute("""
+                SELECT 
+                    a.fecha,
+                    a.hora,
+                    s.nombre as seccion,
+                    a.metodo_deteccion,
+                    a.estado,
+                    a.confianza
+                FROM asistencias a
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                WHERE a.estudiante_id = ? AND a.fecha BETWEEN ? AND ?
+                ORDER BY a.fecha DESC, a.hora DESC
+            """, (estudiante_id, fecha_inicio, fecha_fin))
+            
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo asistencias por estudiante: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def obtener_resumen_asistencias_por_seccion(self, fecha_consulta=None):
+        """Obtiene resumen de asistencias por sección para una fecha"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            if fecha_consulta is None:
+                fecha_consulta = date.today()
+            
+            cursor.execute("""
+                SELECT 
+                    s.nombre as seccion,
+                    COUNT(*) as total_asistencias,
+                    COUNT(DISTINCT a.estudiante_id) as estudiantes_unicos,
+                    SUM(CASE WHEN a.estado = 'presente' THEN 1 ELSE 0 END) as presentes,
+                    SUM(CASE WHEN a.estado = 'tardanza' THEN 1 ELSE 0 END) as tardanzas
+                FROM asistencias a
+                JOIN secciones s ON a.seccion_id = s.id
+                WHERE a.fecha = ?
+                GROUP BY s.nombre
+                ORDER BY s.nombre
+            """, (fecha_consulta,))
+            
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo resumen por sección: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def obtener_estudiantes_sin_asistencia_hoy(self):
+        """Obtiene estudiantes que NO han registrado asistencia hoy"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            fecha_actual = date.today()
+            
+            cursor.execute("""
+                SELECT 
+                    e.id,
+                    e.nombre,
+                    e.apellido,
+                    e.dni,
+                    s.nombre as seccion_nombre
+                FROM estudiantes e
+                LEFT JOIN secciones s ON e.seccion_id = s.id
+                WHERE e.activo = 1 
+                AND e.id NOT IN (
+                    SELECT estudiante_id 
+                    FROM asistencias 
+                    WHERE fecha = ?
+                )
+                ORDER BY e.apellido, e.nombre
+            """, (fecha_actual,))
+            
+            return cursor.fetchall()
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo estudiantes sin asistencia: {e}")
+            return []
+        finally:
+            conn.close()
+    
     # ---------------- MÉTODOS EXISTENTES ---------------- #
+    
     def generar_qr_estudiante(self, estudiante_id, dni, nombre, apellido, intento=0):
         """Genera un código QR único para el estudiante"""
         try:

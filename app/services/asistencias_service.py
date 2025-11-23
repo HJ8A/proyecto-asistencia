@@ -32,23 +32,35 @@ class AsistenciaService:
         self.history_length = 3
 
     def cargar_registros_del_dia(self):
-        """Cargar estudiantes ya registrados hoy para evitar duplicados"""
+        """Carga los estudiantes que ya han registrado asistencia hoy"""
         try:
-            registros = self.db.obtener_asistencias_del_dia()
-            self.estudiantes_registrados_hoy = set(registros)
+            asistencias_hoy = self.obtener_asistencias_del_dia()
+            self.estudiantes_registrados_hoy = set()
+            for asistencia in asistencias_hoy:
+                # asistencia[0] es el ID del estudiante en la tupla retornada
+                self.estudiantes_registrados_hoy.add(asistencia[0])
             print(f"📊 {len(self.estudiantes_registrados_hoy)} estudiantes ya registrados hoy")
         except Exception as e:
             print(f"❌ Error cargando registros del día: {e}")
             self.estudiantes_registrados_hoy = set()
 
     def obtener_asistencias_del_dia(self):
-        """Obtiene las asistencias del día actual con información completa"""
-        return self.db.obtener_asistencias_completas_del_dia()
+        return self.db.obtener_asistencias_hoy()
 
     def obtener_estadisticas_del_dia(self):
         """Obtiene estadísticas de asistencias del día"""
-        return self.db.obtener_estadisticas_del_dia()  
-    
+        return self.db.obtener_estadisticas_hoy()  
+
+    def obtener_resumen_completo_dia(self):
+        """Obtiene resumen completo para el dashboard del día"""
+        asistencias = self.obtener_asistencias_del_dia()
+        estadisticas = self.obtener_estadisticas_del_dia()
+        
+        return {
+            'asistencias': asistencias,
+            'estadisticas': estadisticas,
+            'fecha_actual': datetime.now().strftime('%d/%m/%Y')
+        }
     def cargar_encodings(self):
         """Cargar encodings faciales desde la base de datos"""
         try:
@@ -58,7 +70,6 @@ class AsistenciaService:
             print(f"❌ Error cargando encodings: {e}")
             self.known_face_encodings, self.known_face_names, self.known_face_ids = [], [], []
 
-        
     def cargar_encodings(self):
         """Cargar encodings faciales desde la base de datos"""
         try:
@@ -291,25 +302,9 @@ class AsistenciaService:
                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         return frame
-    
+
     def registrar_asistencia(self, estudiante_id, confianza, metodo):
-        """Registrar asistencia en la base de datos"""
-        try:
-            conn = self.db._get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO asistencias (estudiante_id, fecha, hora, metodo_deteccion, estado, confianza)
-                VALUES (?, DATE('now'), TIME('now'), ?, 'presente', ?)
-            ''', (estudiante_id, metodo, confianza))
-            
-            conn.commit()
-            conn.close()
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error registrando asistencia: {e}")
-            return False
+        return self.db.registrar_asistencia(estudiante_id, metodo, confianza)
         
     def registrar_asistencia_unica(self, estudiante_id, confianza, metodo):
         """Registrar asistencia solo si no se ha registrado hoy"""

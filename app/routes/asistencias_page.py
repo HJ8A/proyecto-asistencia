@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import plotly.express as px
 
 def registrar_asistencias(service, db):
     st.header("📝 Registrar Asistencias - Reconocimiento Facial + QR")
@@ -131,93 +132,193 @@ def mostrar_estadisticas(service):
         st.metric("Sistema", "Activo")
 
 def mostrar_asistencias_del_dia(service):
-    """Muestra las asistencias del día actual"""
-    st.subheader("📊 Asistencias del Día")
+    """Muestra las asistencias del día actual con información completa"""
     
-    try:
-        # Obtener asistencias del día usando el servicio
-        asistencias = service.obtener_asistencias_del_dia()
+    # Obtener resumen completo del día
+    resumen = service.obtener_resumen_completo_dia()
+    estadisticas = resumen['estadisticas']
+    asistencias = resumen['asistencias']
+    fecha_actual = resumen['fecha_actual']
+    
+   
+    st.header(f"📊 Asistencias del Día - {fecha_actual}")
+    
+    # Mostrar estadísticas en tarjetas
+    if estadisticas:
+        col1, col2, col3, col4, col5 = st.columns(5)
         
-        if asistencias:
-            st.success(f"✅ {len(asistencias)} asistencias registradas hoy")
-            
-            # Mostrar en formato de tabla usando pandas
-            df = pd.DataFrame(asistencias, columns=[
-                'Nombre', 'Apellido', 'DNI', 'Hora', 'Método', 'Confianza', 'Sección'
-            ])
-            
-            # Formatear confianza
-            if 'Confianza' in df.columns:
-                df['Confianza'] = df['Confianza'].apply(
-                    lambda x: f"{float(x):.2%}" if x and str(x).replace('.', '').isdigit() else "N/A"
+        with col1:
+            st.metric(
+                "Total Asistencias", 
+                estadisticas['total_asistencias'],
+                help="Total de registros de asistencia hoy"
+            )
+        
+        with col2:
+            st.metric(
+                "Estudiantes Únicos", 
+                estadisticas['estudiantes_unicos'],
+                help="Estudiantes diferentes que han marcado asistencia"
+            )
+        
+        with col3:
+            st.metric(
+                "Presentes", 
+                estadisticas['presentes'],
+                help="Asistencias en horario puntual"
+            )
+        
+        with col4:
+            st.metric(
+                "Tardanzas", 
+                estadisticas['tardanzas'],
+                help="Asistencias registradas después del horario límite"
+            )
+        
+        with col5:
+            total_metodos = estadisticas['por_rostro'] + estadisticas['por_qr']
+            if total_metodos > 0:
+                porcentaje_rostro = (estadisticas['por_rostro'] / total_metodos) * 100
+                porcentaje_qr = (estadisticas['por_qr'] / total_metodos) * 100
+                st.metric(
+                    "Métodos", 
+                    f"👤 {porcentaje_rostro:.0f}%",
+                    delta=f"📄 {porcentaje_qr:.0f}%",
+                    help="Distribución por método de detección"
                 )
-            
-            st.dataframe(df, use_container_width=True, height=400)
-            
-            # Mostrar también en formato de tarjetas
-            st.subheader("📋 Detalle de Asistencias")
-            for asistencia in asistencias:
-                nombre, apellido, dni, hora, metodo, confianza, seccion = asistencia
-                
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
-                    with col1:
-                        st.write(f"**{nombre} {apellido}**")
-                        st.caption(f"DNI: {dni} | Sección: {seccion or 'N/A'}")
-                    with col2:
-                        st.write(f"🕒 {hora}")
-                        st.caption(f"Método: {metodo}")
-                    with col3:
-                        if confianza and str(confianza).replace('.', '').isdigit():
-                            st.write(f"🔍 {float(confianza):.2f}")
-                    with col4:
-                        if metodo == 'rostro':
-                            st.success("👤 Facial")
-                        else:
-                            st.info("📄 QR")
-                    st.divider()
-        else:
-            st.info("📝 No hay asistencias registradas para hoy")
-            
-    except Exception as e:
-        st.error(f"Error al cargar asistencias: {e}")
+            else:
+                st.metric("Métodos", "N/A")
+    
+    st.subheader("📋 Lista de Asistencias Registradas")
+    
+    if asistencias:
+        # Crear DataFrame con información completa
+        datos = []
+        for asistencia in asistencias:
+            # Estructura de la tupla: (id, nombre, apellido, dni, seccion_nombre, hora, metodo_deteccion, confianza, estado)
+            datos.append({
+                'ID': asistencia[0],
+                'Nombre': asistencia[1],
+                'Apellido': asistencia[2],
+                'DNI': asistencia[3],
+                'Sección': asistencia[4] or 'No asignada',
+                'Hora': asistencia[5],
+                'Método': '👤 Rostro' if asistencia[6] == 'rostro' else '📄 QR',
+                'Confianza': f"{asistencia[7]:.2f}" if asistencia[7] is not None else 'N/A',
+                'Estado': '🟢 Puntual' if asistencia[8] == 'presente' else '🟡 Tardanza'
+            })
         
-        # Fallback: intentar obtener asistencias directamente de la base de datos
-        try:
-            hoy = datetime.now().date()
-            conn = service.db._get_connection()
-            cursor = conn.cursor()
+        df = pd.DataFrame(datos)
+        
+        # Mostrar tabla con estilo
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=400,
+            hide_index=True,
+            column_config={
+                'ID': st.column_config.NumberColumn('ID', width='small'),
+                'Nombre': st.column_config.TextColumn('Nombre', width='medium'),
+                'Apellido': st.column_config.TextColumn('Apellido', width='medium'),
+                'DNI': st.column_config.TextColumn('DNI', width='small'),
+                'Sección': st.column_config.TextColumn('Sección', width='medium'),
+                'Hora': st.column_config.TextColumn('Hora', width='small'),
+                'Método': st.column_config.TextColumn('Método', width='small'),
+                'Confianza': st.column_config.TextColumn('Confianza', width='small'),
+                'Estado': st.column_config.TextColumn('Estado', width='small')
+            }
+        )
+        
+        st.subheader("🔍 Detalle de Asistencias")
+        
+        for asistencia in asistencias:
+            id_asist, nombre, apellido, dni, seccion, hora, metodo, confianza, estado = asistencia
             
-            cursor.execute('''
-                SELECT e.nombre, e.apellido, e.dni, a.hora, a.metodo_deteccion, a.confianza
-                FROM asistencias a
-                JOIN estudiantes e ON a.estudiante_id = e.id
-                WHERE a.fecha = ?
-                ORDER BY a.hora DESC
-            ''', (hoy,))
+            with st.expander(f"{nombre} {apellido} - {hora}", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**👤 Información Personal**")
+                    st.write(f"**Nombre:** {nombre} {apellido}")
+                    st.write(f"**DNI:** {dni}")
+                    st.write(f"**Sección:** {seccion or 'No asignada'}")
+                
+                with col2:
+                    st.write("**📊 Datos de Asistencia**")
+                    st.write(f"**Hora:** {hora}")
+                    st.write(f"**Método:** {metodo}")
+                    st.write(f"**Estado:** {estado}")
+                
+                with col3:
+                    st.write("**🎯 Detalles Técnicos**")
+                    if confianza is not None:
+                        st.write(f"**Confianza:** {confianza:.2f}")
+                    
+                    # Mostrar icono según método
+                    if metodo == 'rostro':
+                        st.success("👤 Reconocimiento Facial")
+                        if confianza is not None:
+                            # Barra de progreso para confianza
+                            st.progress(float(confianza), text=f"Confianza: {confianza:.0%}")
+                    else:
+                        st.info("📄 Código QR")
+                        st.success("✅ QR Válido")
+                
+                # Separador visual
+                st.markdown("---")
+    
+    else:
+        # No hay asistencias hoy
+        st.info("📝 No hay asistencias registradas para el día de hoy")
+        
+        # Mostrar mensaje amigable
+        st.markdown("""
+        <div style='text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px;'>
+            <h3 style='color: #666;'>No se han registrado asistencias hoy</h3>
+            <p style='color: #888;'>Las asistencias aparecerán aquí automáticamente cuando los estudiantes sean detectados por rostro o QR.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if asistencias and len(asistencias) > 0:
+        with st.expander("📈 Visualizaciones"):
+            col1, col2 = st.columns(2)
             
-            asistencias_fallback = cursor.fetchall()
-            conn.close()
+            with col1:
+                # Gráfico de métodos de detección
+                metodos_count = {
+                    'Rostro': len([a for a in asistencias if a[6] == 'rostro']),
+                    'QR': len([a for a in asistencias if a[6] == 'qr'])
+                }
+                
+                if metodos_count['Rostro'] > 0 or metodos_count['QR'] > 0:
+                    fig_metodos = px.pie(
+                        values=list(metodos_count.values()),
+                        names=list(metodos_count.keys()),
+                        title="Distribución por Método de Detección",
+                        color=list(metodos_count.keys()),
+                        color_discrete_map={'Rostro': '#1f77b4', 'QR': '#ff7f0e'}
+                    )
+                    st.plotly_chart(fig_metodos, use_container_width=True)
             
-            if asistencias_fallback:
-                st.warning("Usando método alternativo para cargar asistencias")
-                for nombre, apellido, dni, hora, metodo, confianza in asistencias_fallback:
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
-                        with col1:
-                            st.write(f"**{nombre} {apellido}**")
-                            st.caption(f"DNI: {dni}")
-                        with col2:
-                            st.write(f"🕒 {hora}")
-                            st.caption(f"Método: {metodo}")
-                        with col3:
-                            if confianza:
-                                st.write(f"🔍 {confianza:.2f}")
-                        with col4:
-                            if metodo == 'rostro':
-                                st.success("👤 Facial")
-                            else:
-                                st.info("📄 QR")
-                        st.divider()
-        except Exception as e2:
-            st.error(f"Error en método alternativo: {e2}")
+            with col2:
+                # Gráfico de estados
+                estados_count = {
+                    'Puntual': len([a for a in asistencias if a[8] == 'presente']),
+                    'Tardanza': len([a for a in asistencias if a[8] == 'tardanza'])
+                }
+                
+                if estados_count['Puntual'] > 0 or estados_count['Tardanza'] > 0:
+                    fig_estados = px.bar(
+                        x=list(estados_count.keys()),
+                        y=list(estados_count.values()),
+                        title="Distribución por Estado",
+                        color=list(estados_count.keys()),
+                        color_discrete_map={'Puntual': '#2ecc71', 'Tardanza': '#f39c12'}
+                    )
+                    st.plotly_chart(fig_estados, use_container_width=True)
+
+def mostrar_consultas_avanzadas(service):
+    """Para futuras consultas avanzadas (lo mencionaste para después)"""
+    st.header("🔍 Consultas Avanzadas de Asistencias")
+    st.info("Esta funcionalidad estará disponible próximamente")
+
