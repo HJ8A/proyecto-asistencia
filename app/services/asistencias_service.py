@@ -61,6 +61,7 @@ class AsistenciaService:
             'estadisticas': estadisticas,
             'fecha_actual': datetime.now().strftime('%d/%m/%Y')
         }
+
     def cargar_encodings(self):
         """Cargar encodings faciales desde la base de datos"""
         try:

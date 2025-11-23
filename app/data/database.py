@@ -625,7 +625,9 @@ class DatabaseManager:
             return []
         finally:
             conn.close()
+    
     # ---------------- MÉTODOS MODIFICADOS PARA ASISTENCIAS ---------------- #
+    
     def registrar_asistencia(self, estudiante_id, metodo_deteccion, confianza=None):
         """Registra una asistencia con todos los campos necesarios"""
         conn = self._get_connection()
@@ -666,12 +668,15 @@ class DatabaseManager:
             
             # Convertir y calcular tiempos
             hora_entrada = datetime.strptime(hora_entrada_str, '%H:%M:%S').time()
-            hora_actual = datetime.now().time()
+            # Obtener hora actual como string para SQLite
+            hora_actual = datetime.now()
+            hora_actual_str = hora_actual.strftime('%H:%M:%S')
+            hora_actual_time = hora_actual.time()  # Para comparaciones
             estado = 'presente'
             
             # Calcular hora límite para tardanza
             hora_limite = self._calcular_hora_limite(hora_entrada, tolerancia)
-            if hora_actual > hora_limite:
+            if hora_actual_time > hora_limite:
                 estado = 'tardanza'
             
             # 4. Registrar asistencia
@@ -683,7 +688,7 @@ class DatabaseManager:
                 estudiante_id,
                 seccion_id,
                 hoy,
-                hora_actual,
+                hora_actual_str,
                 metodo_deteccion,
                 estado,
                 confianza
@@ -707,9 +712,12 @@ class DatabaseManager:
 
     def _calcular_hora_limite(self, hora_entrada, tolerancia_minutos):
         """Calcula la hora límite para considerar tardanza"""
+        from datetime import datetime, time, timedelta
+        
+        # Crear un datetime combinando fecha actual con la hora de entrada
         hora_limite = datetime.combine(date.today(), hora_entrada)
         hora_limite += timedelta(minutes=tolerancia_minutos)
-        return hora_limite.time()
+        return hora_limite.time()  # Devolver como time object para comparaciones
 
     def consultar_asistencias_por_fecha(fecha_consulta=None, seccion_id=None):
         """Consulta asistencias por fecha y opcionalmente por sección"""
@@ -1164,7 +1172,7 @@ class DatabaseManager:
             conn.close()
     
     def obtener_asistencias_del_dia(self):
-        """Obtiene las asistencias del día actual (solo los IDs de estudiantes)"""
+        """Obtiene las asistencias del día actual con información completa"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
@@ -1172,14 +1180,24 @@ class DatabaseManager:
             hoy = datetime.now().date()
             
             cursor.execute('''
-                SELECT estudiante_id 
-                FROM asistencias 
-                WHERE fecha = ?
+                SELECT 
+                    a.id,
+                    e.nombre,
+                    e.apellido, 
+                    e.dni,
+                    s.nombre as seccion_nombre,
+                    a.hora,
+                    a.metodo_deteccion,
+                    a.confianza,
+                    a.estado
+                FROM asistencias a
+                JOIN estudiantes e ON a.estudiante_id = e.id
+                LEFT JOIN secciones s ON a.seccion_id = s.id
+                WHERE a.fecha = ?
+                ORDER BY a.hora DESC
             ''', (hoy,))
             
-            data = cursor.fetchall()
-            # Devolver una lista de IDs de estudiantes
-            return [row[0] for row in data]
+            return cursor.fetchall()
         except Exception as e:
             print(f"❌ Error obteniendo asistencias del día: {e}")
             return []
@@ -1227,38 +1245,47 @@ class DatabaseManager:
             
             # Total asistencias
             cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ?', (hoy,))
-            total_asistencias = cursor.fetchone()[0]
+            total_asistencias = cursor.fetchone()[0] or 0
+            
+            # Estudiantes únicos
+            cursor.execute('SELECT COUNT(DISTINCT estudiante_id) FROM asistencias WHERE fecha = ?', (hoy,))
+            estudiantes_unicos = cursor.fetchone()[0] or 0
             
             # Por método de detección
-            cursor.execute('''
-                SELECT metodo_deteccion, COUNT(*) 
-                FROM asistencias 
-                WHERE fecha = ? 
-                GROUP BY metodo_deteccion
-            ''', (hoy,))
-            por_metodo = dict(cursor.fetchall())
+            cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ? AND metodo_deteccion = "rostro"', (hoy,))
+            por_rostro = cursor.fetchone()[0] or 0
             
-            # Por sección
-            cursor.execute('''
-                SELECT s.nombre, COUNT(*) 
-                FROM asistencias a
-                JOIN estudiantes e ON a.estudiante_id = e.id
-                LEFT JOIN secciones s ON e.seccion_id = s.id
-                WHERE a.fecha = ?
-                GROUP BY s.nombre
-            ''', (hoy,))
-            por_seccion = dict(cursor.fetchall())
+            cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ? AND metodo_deteccion = "qr"', (hoy,))
+            por_qr = cursor.fetchone()[0] or 0
+            
+            # Por estado
+            cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ? AND estado = "presente"', (hoy,))
+            presentes = cursor.fetchone()[0] or 0
+            
+            cursor.execute('SELECT COUNT(*) FROM asistencias WHERE fecha = ? AND estado = "tardanza"', (hoy,))
+            tardanzas = cursor.fetchone()[0] or 0
             
             return {
                 'total_asistencias': total_asistencias,
-                'por_metodo': por_metodo,
-                'por_seccion': por_seccion
+                'estudiantes_unicos': estudiantes_unicos,
+                'por_rostro': por_rostro,
+                'por_qr': por_qr,
+                'presentes': presentes,
+                'tardanzas': tardanzas
             }
         except Exception as e:
             print(f"❌ Error obteniendo estadísticas del día: {e}")
-            return {'total_asistencias': 0, 'por_metodo': {}, 'por_seccion': {}}
+            return {
+                'total_asistencias': 0,
+                'estudiantes_unicos': 0,
+                'por_rostro': 0,
+                'por_qr': 0,
+                'presentes': 0,
+                'tardanzas': 0
+            }
         finally:
             conn.close()
+
 
     def verificar_y_corregir_qr_duplicados(self):
         """Verifica y corrige códigos QR duplicados en la base de datos"""
