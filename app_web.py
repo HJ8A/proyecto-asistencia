@@ -39,7 +39,7 @@ def main():
             "👥 Estudiantes",
             "🏫 Académico",
             "📝 Registrar Asistencias",
-            "📈 Reportes-Estadísticas",
+            #"📈 Reportes-Estadísticas",
             "⚙️ Configuración"
         ]
     )
@@ -57,8 +57,8 @@ def main():
     elif opcion == "🏫 Académico":  # Nueva ruta
         gestion_academica_page.gestion_academica(gestion_academica_service)
 
-    elif opcion == "📈 Reportes-Estadísticas":
-        reportes_page.mostrar_reportes(db)
+    #elif opcion == "📈 Reportes-Estadísticas":
+    #    reportes_page.mostrar_reportes(db)
 
     elif opcion == "⚙️ Configuración":
         configuracion_page.mostrar_configuracion(db)
